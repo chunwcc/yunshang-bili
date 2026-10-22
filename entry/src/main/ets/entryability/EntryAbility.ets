@@ -216,6 +216,8 @@ export default class EntryAbility extends UIAbility {
       // ⭐ 注册 bgp（后台播放开关）为持久化 AppStorage 属性：重启后仍保留（直播/点播共用）。
       //    必须入口注册，否则直接重启进直播页时 persistProp 未执行，@StorageLink('bgp') 只能拿默认 false
       PersistentStorage.persistProp('bgp', false);
+      // ⭐ 注册 autoPip（回到桌面自动画中画开关）：同样必须入口注册，重启后仍保留
+      PersistentStorage.persistProp('autoPip', true);
     } catch (e) {
       hilog.error(DOMAIN, TAG, 'Failed to load card settings: %{public}s', JSON.stringify(e));
     }

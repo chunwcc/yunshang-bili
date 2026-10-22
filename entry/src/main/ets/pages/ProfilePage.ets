@@ -117,6 +117,8 @@ export struct ProfilePage {
   @StorageLink('shrinkVideoOnScroll') shrinkVideoOnScroll: boolean = false;
   // ⭐ 消息页 Tab 自动隐藏（默认关闭）
   @StorageLink('msgTabAutoHide') msgTabAutoHide: boolean = false;
+  // ⭐ 回桌面自动画中画（默认开启，播放页武装/解除共用此持久化 key）
+  @StorageLink('autoPip') autoPip: boolean = true;
   // ⭐ 动态页点击切换分类（默认打开）
   @StorageLink('dynFilterTapOnly') dynFilterTapOnly: boolean = true;
   // ⭐ 首页点击切换分类（默认关闭）
@@ -1939,6 +1941,10 @@ export struct ProfilePage {
           this.SettingItemWithPicker($r('app.media.ic_settings_quality'), '画质', () => { this.showQualityPicker(); }, 8)
           this.SettingItemWithPicker($r('app.media.ic_settings_quality'), '推荐源', () => { this.showRecommendApiPicker(); }, 8)
           this.SettingItemWithPicker($r('app.media.ic_settings_quality'), '弹幕数据源', () => { this.showDanmakuApiPicker(); }, 8)
+          // ⭐ 回桌面自动画中画开关（播放页按此 key 武装/解除自动小窗）
+          this.SettingItemWithToggle($r('app.media.ic_settings_quality'), '自动小窗', this.autoPip, async (value: boolean) => {
+            this.autoPip = value;
+          }, 8, '播放中回到桌面自动以小窗继续播放')
 
           // ── 首页轮播 ──
           this.SectionHeader('首页轮播')
@@ -2749,6 +2755,10 @@ export struct ProfilePage {
                 this.SettingItemWithPicker($r('app.media.ic_settings_quality'), '画质', () => { this.showQualityPicker(); }, 8)
                 this.SettingItemWithPicker($r('app.media.ic_settings_quality'), '推荐源', () => { this.showRecommendApiPicker(); }, 8)
           this.SettingItemWithPicker($r('app.media.ic_settings_quality'), '弹幕数据源', () => { this.showDanmakuApiPicker(); }, 8)
+          // ⭐ 回桌面自动画中画开关（播放页按此 key 武装/解除自动小窗）
+          this.SettingItemWithToggle($r('app.media.ic_settings_quality'), '自动小窗', this.autoPip, async (value: boolean) => {
+            this.autoPip = value;
+          }, 8, '播放中回到桌面自动以小窗继续播放')
                 this.SectionHeader('功能开关')
                 this.SettingItemWithToggle($r('app.media.ic_public_search_filled'), '搜索发现', this.showSearchDiscovery, (value: boolean) => { AppStorage.set('showSearchDiscovery', value); }, 8)
                 this.SettingItemWithToggle($r('app.media.arrow_clockwise'), '上次看到这里', this.showRefreshSeparator, async (value: boolean) => {

@@ -1,5 +1,5 @@
 ﻿// VideoPlayerPage.ets
-import { router, curves, SegmentButton, SegmentButtonOptions, componentUtils, display, KeyboardAvoidMode, LengthMetrics } from '@kit.ArkUI';
+import { router, curves, SegmentButton, SegmentButtonOptions, componentUtils, display, KeyboardAvoidMode, LengthMetrics, PiPWindow } from '@kit.ArkUI';
 import { logInfo, logWarn, logError, errMsg } from '../utils/Logger';
 import { getVideoPlayUrl, invalidatePlayUrlCache, PlayUrlResult, getVideoDetail, getVideoComments, getCommentReplies, VideoDetail, VideoDetailOwner, VideoDetailStat, CommentItem, getVideoUserStatus, VideoPageItem, getFollowStatus, modifyFollow, clearFollowedMidsCache, getUserInfo, UserInfo, getPgcPlayUrl, getPgcSeasonInfo, getPgcEpisodeInfo, getPgcSeasonInfoByEpId, PgcSeasonInfo, PgcEpisode, getRelatedVideos, addVideoComment, uploadCommentImage, sendDanmakuVideo, SeasonEpisode, SeasonSection, UgcSeason } from '../api/BilibiliApi';
 import { CommentInputBar, CommentImageDraft, CommentInputBarCtrl } from '../components/CommentInputBar';
@@ -1050,6 +1050,11 @@ struct VideoPlayerPage {
   @StorageLink('appBackgroundTimestamp') @Watch('onAppBackgroundConfirmed') appBgTimestamp: number = 0
   // ⭐ 应用是否已切后台（EntryAbility.onBackground/onForeground 维护）：区分「跳页」与「真后台」
   @StorageLink('appInBackground') appInBackground: boolean = false
+  // ── 画中画（自动小窗 · 页面模式）：回桌面时播放中自动弹小窗，以本页 XComponent 为小窗载体 ──
+  @StorageLink('autoPip') autoPip: boolean = true
+  private pipCtrl_: PiPWindow.PiPController | null = null
+  private pipCreating_: boolean = false
+  private pipActive_: boolean = false // 小窗展示中（ABOUT_TO_START ~ STOPPED/还原）
 
   // ⭐ 选集状态
   @State currentPageIndex: number = 0  // 当前分P索引
@@ -3303,6 +3308,11 @@ struct VideoPlayerPage {
   onPageHide(): void {
     // ⭐ 页面隐藏即释放屏幕常亮（后台播放/跳页时屏幕可正常锁屏）
     this.mw?.setWindowKeepScreenOn(false).catch(() => {});
+    // ⭐ 自动画中画：切后台且武装中 → 保持播放，画面随 XComponent 迁入系统小窗
+    if (this.appInBackground && this.pipCtrl_ && this.pipArmAllowed_()) {
+      logInfo('[VideoPlayer] onPageHide → 自动小窗模式，保持播放');
+      return;
+    }
     // 播放器已转移至 PlayerService（最小化场景），页面不再控制播放
     if (PlayerService.getInstance().hasActivePlayer) {
       logInfo('[VideoPlayer] onPageHide → 播放器已转移至 PlayerService，跳过');
@@ -3341,17 +3351,21 @@ struct VideoPlayerPage {
    */
   onAppBackgroundConfirmed(): void {
     if (this.appBgTimestamp === 0) return;
-    if (!this.bgpPausedByPageHide_) return;
-    this.bgpPausedByPageHide_ = false;
-    if (!this.bgp) return;
-    if (!this.av) return;
-    logInfo('[VideoPlayer] onBackground 确认 → 后台播放模式，恢复播放');
-    if (this.av.state === 'paused') {
-      this.av.play();
-      this.avAudio?.play();
-      this.play = true;
+    if (this.bgpPausedByPageHide_) {
+      this.bgpPausedByPageHide_ = false;
+      if (this.bgp && this.av) {
+        logInfo('[VideoPlayer] onBackground 确认 → 后台播放模式，恢复播放');
+        if (this.av.state === 'paused') {
+          this.av.play();
+          this.avAudio?.play();
+          this.play = true;
+        }
+        LiveViewHelper.updatePlayState(true);
+      }
     }
-    LiveViewHelper.updatePlayState(true);
+    // ⭐ 自动画中画：切后台后同步武装；bgp 恢复播放是异步的，安排重试补武装
+    this.updatePipAutoArm_();
+    this.armPipWhenPlaying_(5);
   }
 
   /**
@@ -3371,6 +3385,8 @@ struct VideoPlayerPage {
     }
     // ⭐ 屏幕常亮：回到页面按当前播放状态恢复
     this.updateKeepScreen();
+    // ⭐ 自动画中画：页面恢复可见，重新评估武装状态
+    this.updatePipAutoArm_();
     // ⭐ 从缓存页返回时同步缓存提示条：暂停后「继续」走的是 resume() 的新下载，
     // 最初 svc.download 的回调已结束，须按条目真实状态刷新完成文案
     this.syncCacheHintStatus();
@@ -4672,6 +4688,12 @@ struct VideoPlayerPage {
   release() {
     // ⭐ 停止同步定时器
     this.stopSyncTimer();
+    // ⭐ 自动画中画：先解除武装再关小窗（防止页面销毁后回桌面系统拉起空白小窗）
+    try { this.pipCtrl_?.setAutoStartEnabled(false); } catch (e) { }
+    if (this.pipActive_ && this.pipCtrl_) {
+      this.pipCtrl_.stopPiP().catch(() => { });
+      this.pipActive_ = false;
+    }
     if (this.av) {
       this.av.off('stateChange');
       this.av.off('timeUpdate');
@@ -5010,8 +5032,15 @@ struct VideoPlayerPage {
             }
           }
           break;
+        case 'playing':
+        case 'paused':
+          // ⭐ 自动画中画：以真实播放状态驱动武装（自动起播不经 togglePP，
+          //   进入 playing 即武装，确保回桌面时 auto-start 已就绪）
+          this.updatePipAutoArm_();
+          break;
         case 'completed':
           this.play = false;
+          this.updatePipAutoArm_();
           break;
         case 'error':
           this.err = '播放器内部错误';
@@ -5064,6 +5093,8 @@ struct VideoPlayerPage {
         this.updateIsLandscapeVertical();
         this.updateLSVSize();
         this.updateVideoSize();
+        // ⭐ 自动画中画：同步小窗宽高比
+        try { this.pipCtrl_?.updateContentSize(w, h); } catch (e) { }
       } else {
         // 视频尺寸为0，可能是DASH模式下视频流尚未就绪
         logWarn('[VideoPlayer] Video size is 0x0, video stream may not be ready');
@@ -5104,6 +5135,9 @@ struct VideoPlayerPage {
 
     this.sId = id;
 
+    // ⭐ 自动画中画：创建画中画控制器（以本页 XComponent 为小窗载体）
+    this.ensurePipController_();
+
     // 初始化播放器（如果尚未初始化）
     if (!this.av && !this.initPInProgress_) {
       this.initP();
@@ -5112,6 +5146,105 @@ struct VideoPlayerPage {
       this.bindS();
     }
     // ⭐ XComponent 常驻单实例：surface 不再随布局分支切换重建，无需换 surface/强制出帧兜底
+  }
+
+  // ═══════════════════ 画中画（自动小窗 · 页面模式）═══════════════════
+  // 以本页 XComponent 为小窗载体：回桌面时播放中由系统自动拉起，画面随组件迁入小窗。
+  // 仅播放中的本页可武装 setAutoStartEnabled；暂停/页面销毁即解除（防空白小窗）。
+
+  /** 是否允许武装「回桌面自动小窗」：开关开 + 真实播放中 + 小窗未开 */
+  private pipArmAllowed_(): boolean {
+    return this.autoPip && this.play && this.av?.state === 'playing' && !this.pipActive_;
+  }
+
+  /** 同步自动小窗武装状态（播放状态/切后台/页面显隐变化后调用） */
+  private updatePipAutoArm_(): void {
+    try {
+      this.pipCtrl_?.setAutoStartEnabled(this.pipArmAllowed_());
+    } catch (e) {
+      logWarn('[PiP] setAutoStartEnabled 失败:', e);
+    }
+  }
+
+  /** bgp 恢复播放是异步的：等 av 真实进入 playing 后补武装（最多重试 retries 次 × 200ms） */
+  private armPipWhenPlaying_(retries: number): void {
+    if (!this.pipCtrl_ || this.pipActive_ || !this.autoPip || !this.play) return;
+    if (this.av && this.av.state === 'playing') {
+      this.updatePipAutoArm_();
+      return;
+    }
+    if (retries <= 0) return;
+    setTimeout(() => this.armPipWhenPlaying_(retries - 1), 200);
+  }
+
+  /** 同步小窗面板播放/暂停按钮状态 */
+  private syncPipControlStatus_(): void {
+    if (!this.pipActive_ || !this.pipCtrl_) return;
+    try {
+      this.pipCtrl_.updatePiPControlStatus(PiPWindow.PiPControlType.VIDEO_PLAY_PAUSE,
+        this.play ? PiPWindow.PiPControlStatus.PLAY : PiPWindow.PiPControlStatus.PAUSE);
+    } catch (e) { }
+  }
+
+  /** 创建（幂等）画中画控制器：以本页 XComponent 为小窗载体 */
+  private async ensurePipController_(): Promise<void> {
+    if (this.pipCtrl_ || this.pipCreating_) return;
+    if (!PiPWindow.isPiPEnabled()) {
+      logWarn('[PiP] 当前设备不支持画中画');
+      return;
+    }
+    this.pipCreating_ = true;
+    try {
+      const config: PiPWindow.PiPConfiguration = {
+        context: this.getUIContext().getHostContext() as common.UIAbilityContext,
+        componentController: this.xc,
+        templateType: PiPWindow.PiPTemplateType.VIDEO_PLAY,
+        contentWidth: this.vw > 0 ? this.vw : 1280,
+        contentHeight: this.vh > 0 ? this.vh : 720,
+      };
+      this.pipCtrl_ = await PiPWindow.create(config);
+      this.pipCtrl_.on('stateChange', (state: PiPWindow.PiPState, reason: string) => {
+        this.onPipStateChange_(state, reason);
+      });
+      this.pipCtrl_.on('controlPanelActionEvent', (event: PiPWindow.PiPActionEventType, status?: number) => {
+        if (event !== 'playbackStateChanged') return;
+        const playing = status === 1;
+        logInfo(`[PiP] playbackStateChanged: playing=${playing}`);
+        // 小窗面板播放/暂停：经 togglePP 与页面状态同步
+        if (playing !== this.play) {
+          this.togglePP();
+        }
+      });
+      logInfo('[PiP] 画中画控制器创建成功（页面 XComponent 模式）');
+      this.updatePipAutoArm_();
+    } catch (e) {
+      logError('[PiP] 创建画中画控制器失败:', e);
+    } finally {
+      this.pipCreating_ = false;
+    }
+  }
+
+  /** 画中画生命周期状态变化 */
+  private onPipStateChange_(state: PiPWindow.PiPState, reason: string): void {
+    logInfo(`[PiP] stateChange: ${state}, reason: ${reason}`);
+    if (state === PiPWindow.PiPState.ABOUT_TO_START || state === PiPWindow.PiPState.STARTED) {
+      this.pipActive_ = true;
+    } else if (state === PiPWindow.PiPState.ABOUT_TO_RESTORE) {
+      this.pipActive_ = false;
+    } else if (state === PiPWindow.PiPState.STOPPED) {
+      this.pipActive_ = false;
+      // ⭐ 小窗被用户关闭（拖删/关闭按钮）且应用仍在后台：未开后台播放则暂停，避免"幽灵音频"
+      if ((reason === 'dragDelete' || reason === 'panelActionDelete') && this.appInBackground && !this.bgp) {
+        this.av?.pause();
+        this.avAudio?.pause();
+        this.play = false;
+        LiveViewHelper.updatePlayState(false);
+        logInfo('[PiP] 小窗被关闭，已暂停播放');
+      }
+    } else if (state === PiPWindow.PiPState.ERROR) {
+      this.pipActive_ = false;
+    }
+    this.updatePipAutoArm_();
   }
 
   async togglePP() {
@@ -5129,6 +5262,9 @@ struct VideoPlayerPage {
     }
     // ⭐ 实况窗：更新播放状态
     LiveViewHelper.updatePlayState(this.play);
+    // ⭐ 自动画中画：同步小窗面板播放/暂停按钮状态 + 武装状态
+    this.syncPipControlStatus_();
+    this.updatePipAutoArm_();
     this.cancelDelayHide();
     if (this.cv) this.resetCT();
   }
