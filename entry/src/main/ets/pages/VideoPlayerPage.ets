@@ -2383,6 +2383,13 @@ struct VideoPlayerPage {
     return this.vi.cover || undefined;
   }
 
+  // ⭐ 播放页导航按钮与横屏布局度量：按钮行尺寸与 buildLandscape 同源，
+  //    改按钮大小时 updateLSVSize 的高度预留自动跟随
+  private readonly NAV_BTN_SIZE: number = 51;          // 圆形导航按钮直径（宽=高，圆角=直径/2）
+  private readonly NAV_BTN_CAPSULE_W: number = 90;     // "详情·评论"胶囊按钮宽度（高同 NAV_BTN_SIZE）
+  private readonly NAV_BTN_ROW_MARGIN: number = 6;     // 按钮行上下外边距
+  private readonly LAND_VIDEO_W_RATIO: number = 0.67;  // 横屏视频宽度占屏宽比例
+
   updateLSVSize(): void {
     if (!this.isLs) return;
     const arV = Number.isFinite(this.ar) && this.ar > 0 ? this.ar : 9 / 16;
@@ -2392,9 +2399,17 @@ struct VideoPlayerPage {
       this.lsvh = videoH;
       this.lsvw = videoH * arV;
     } else {
-      // 横屏视频：宽度占67%，高度按实际宽高比
-      this.lsvw = this.cw * 0.67;
+      // 横屏视频：宽度按比例占屏宽，高度按实际宽高比；超出可用高度时以高度限制大小
+      // 可用高度预留视频下方按钮行空间（NAV_BTN_SIZE + 上下 NAV_BTN_ROW_MARGIN），
+      // 否则近1:1/4:3视频会把按钮行（深浅色切换等）挤出屏幕
+      const btnRowH = this.NAV_BTN_SIZE + 2 * this.NAV_BTN_ROW_MARGIN;
+      const maxH = Math.max(1, this.ch - 2 * this.cardMargin - btnRowH);
+      this.lsvw = this.cw * this.LAND_VIDEO_W_RATIO;
       this.lsvh = this.lsvw / arV;
+      if (this.lsvh > maxH) {
+        this.lsvh = maxH;
+        this.lsvw = maxH * arV;
+      }
     }
   }
 
@@ -7708,9 +7723,9 @@ struct VideoPlayerPage {
                             .fontColor(this.layoutSwapPressed ? this.playerFollowTheme ? this.customThemeColor : ('app.color.color_bilibili_pink') : $r('app.color.color_player_text_secondary'))
                             .margin({ top: 3 })
                         }
-                        .width(51)
-                        .height(51)
-                        .borderRadius(25.5)
+                        .width(this.NAV_BTN_SIZE)
+                        .height(this.NAV_BTN_SIZE)
+                        .borderRadius(this.NAV_BTN_SIZE / 2)
                         .backgroundColor(this.getComponentBg(this.cardStyleVideoNavBtns))
                         .justifyContent(FlexAlign.Center)
                         .alignItems(HorizontalAlign.Center)
@@ -7732,9 +7747,9 @@ struct VideoPlayerPage {
                             .fontColor(this.rotationPressed ? this.playerFollowTheme ? this.customThemeColor : ('app.color.color_bilibili_pink') : $r('app.color.color_player_text_secondary'))
                             .margin({ top: 3 })
                         }
-                        .width(51)
-                        .height(51)
-                        .borderRadius(25.5)
+                        .width(this.NAV_BTN_SIZE)
+                        .height(this.NAV_BTN_SIZE)
+                        .borderRadius(this.NAV_BTN_SIZE / 2)
                         .backgroundColor(this.getComponentBg(this.cardStyleVideoNavBtns))
                         .justifyContent(FlexAlign.Center)
                         .alignItems(HorizontalAlign.Center)
@@ -7820,9 +7835,9 @@ struct VideoPlayerPage {
                             .fontColor(this.darkModePressed ? this.playerFollowTheme ? this.customThemeColor : ('app.color.color_bilibili_pink') : $r('app.color.color_player_text_secondary'))
                             .margin({ top: 3 })
                         }
-                        .width(51)
-                        .height(51)
-                        .borderRadius(25.5)
+                        .width(this.NAV_BTN_SIZE)
+                        .height(this.NAV_BTN_SIZE)
+                        .borderRadius(this.NAV_BTN_SIZE / 2)
                         .backgroundColor(this.getComponentBg(this.cardStyleVideoNavBtns))
                         .justifyContent(FlexAlign.Center)
                         .alignItems(HorizontalAlign.Center)
@@ -7844,9 +7859,9 @@ struct VideoPlayerPage {
                             .fontColor(this.minimizePressed ? this.playerFollowTheme ? this.customThemeColor : ('app.color.color_bilibili_pink') : $r('app.color.color_player_text_secondary'))
                             .margin({ top: 3 })
                         }
-                        .width(51)
-                        .height(51)
-                        .borderRadius(25.5)
+                        .width(this.NAV_BTN_SIZE)
+                        .height(this.NAV_BTN_SIZE)
+                        .borderRadius(this.NAV_BTN_SIZE / 2)
                         .backgroundColor(this.getComponentBg(this.cardStyleVideoNavBtns))
                         .justifyContent(FlexAlign.Center)
                         .alignItems(HorizontalAlign.Center)
@@ -7868,9 +7883,9 @@ struct VideoPlayerPage {
                             .fontColor(this.episodePressed ? this.playerFollowTheme ? this.customThemeColor : ('app.color.color_bilibili_pink') : $r('app.color.color_player_text_secondary'))
                             .margin({ top: 3 })
                         }
-                        .width(51)
-                        .height(51)
-                        .borderRadius(25.5)
+                        .width(this.NAV_BTN_SIZE)
+                        .height(this.NAV_BTN_SIZE)
+                        .borderRadius(this.NAV_BTN_SIZE / 2)
                         .backgroundColor(this.getComponentBg(this.cardStyleVideoNavBtns))
                         .justifyContent(FlexAlign.Center)
                         .alignItems(HorizontalAlign.Center)
@@ -7900,9 +7915,9 @@ struct VideoPlayerPage {
                              .fontColor(this.seasonPressed ? this.playerFollowTheme ? this.customThemeColor : ('app.color.color_bilibili_pink') : $r('app.color.color_player_text_secondary'))
                              .margin({ top: 3 })
                          }
-                         .width(51)
-                         .height(51)
-                         .borderRadius(25.5)
+                         .width(this.NAV_BTN_SIZE)
+                         .height(this.NAV_BTN_SIZE)
+                         .borderRadius(this.NAV_BTN_SIZE / 2)
                          .backgroundColor(this.getComponentBg(this.cardStyleVideoNavBtns))
                          .justifyContent(FlexAlign.Center)
                          .alignItems(HorizontalAlign.Center)
@@ -7945,7 +7960,7 @@ struct VideoPlayerPage {
                               .fontColor(this.layoutSwapPressed ? this.playerFollowTheme ? this.customThemeColor : ('app.color.color_bilibili_pink') : $r('app.color.color_player_text_secondary'))
                               .margin({ top: 3 })
                           }
-                          .width(51).height(51).borderRadius(25.5)
+                          .width(this.NAV_BTN_SIZE).height(this.NAV_BTN_SIZE).borderRadius(this.NAV_BTN_SIZE / 2)
                           .backgroundColor(this.getComponentBg(this.cardStyleVideoNavBtns))
                           .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
                           .margin({ left: 4, right: 4 })
@@ -7965,7 +7980,7 @@ struct VideoPlayerPage {
                               .fontColor(this.rotationPressed ? this.playerFollowTheme ? this.customThemeColor : ('app.color.color_bilibili_pink') : $r('app.color.color_player_text_secondary'))
                               .margin({ top: 3 })
                           }
-                          .width(51).height(51).borderRadius(25.5)
+                          .width(this.NAV_BTN_SIZE).height(this.NAV_BTN_SIZE).borderRadius(this.NAV_BTN_SIZE / 2)
                           .backgroundColor(this.getComponentBg(this.cardStyleVideoNavBtns))
                           .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
                           .margin({ left: 4, right: 4 })
@@ -8046,7 +8061,7 @@ struct VideoPlayerPage {
                               .fontColor(this.darkModePressed ? this.playerFollowTheme ? this.customThemeColor : ('app.color.color_bilibili_pink') : $r('app.color.color_player_text_secondary'))
                               .margin({ top: 3 })
                           }
-                          .width(51).height(51).borderRadius(25.5)
+                          .width(this.NAV_BTN_SIZE).height(this.NAV_BTN_SIZE).borderRadius(this.NAV_BTN_SIZE / 2)
                           .backgroundColor(this.getComponentBg(this.cardStyleVideoNavBtns))
                           .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
                           .margin({ left: 4, right: 4 })
@@ -8066,7 +8081,7 @@ struct VideoPlayerPage {
                             .fontColor(this.minimizePressed ? this.playerFollowTheme ? this.customThemeColor : ('app.color.color_bilibili_pink') : $r('app.color.color_player_text_secondary'))
                             .margin({ top: 3 })
                         }
-                        .width(51).height(51).borderRadius(25.5)
+                        .width(this.NAV_BTN_SIZE).height(this.NAV_BTN_SIZE).borderRadius(this.NAV_BTN_SIZE / 2)
                         .backgroundColor(this.getComponentBg(this.cardStyleVideoNavBtns))
                         .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
                         .margin({ left: 4, right: 4 })
@@ -8085,7 +8100,7 @@ struct VideoPlayerPage {
                               .fontColor(this.episodePressed ? this.playerFollowTheme ? this.customThemeColor : ('app.color.color_bilibili_pink') : $r('app.color.color_player_text_secondary'))
                               .margin({ top: 3 })
                           }
-                          .width(51).height(51).borderRadius(25.5)
+                          .width(this.NAV_BTN_SIZE).height(this.NAV_BTN_SIZE).borderRadius(this.NAV_BTN_SIZE / 2)
                           .backgroundColor(this.getComponentBg(this.cardStyleVideoNavBtns))
                           .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
                           .margin({ left: 4, right: 4 })
@@ -8114,7 +8129,7 @@ struct VideoPlayerPage {
                               .fontColor(this.seasonPressed ? this.playerFollowTheme ? this.customThemeColor : ('app.color.color_bilibili_pink') : $r('app.color.color_player_text_secondary'))
                               .margin({ top: 3 })
                           }
-                          .width(51).height(51).borderRadius(25.5)
+                          .width(this.NAV_BTN_SIZE).height(this.NAV_BTN_SIZE).borderRadius(this.NAV_BTN_SIZE / 2)
                           .backgroundColor(this.getComponentBg(this.cardStyleVideoNavBtns))
                           .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
                           .margin({ left: 4, right: 4 })
@@ -8602,7 +8617,7 @@ struct VideoPlayerPage {
                       .fontColor(this.seasonPressed ? this.playerFollowTheme ? this.customThemeColor : ('app.color.color_bilibili_pink') : $r('app.color.color_player_text_secondary'))
                       .margin({ top: 3 })
                   }
-                  .width(51).height(51).borderRadius(25.5)
+                  .width(this.NAV_BTN_SIZE).height(this.NAV_BTN_SIZE).borderRadius(this.NAV_BTN_SIZE / 2)
                   .backgroundColor(this.getComponentBg(this.cardStyleVideoNavBtns))
                   .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
                   .margin({ left: 4, right: 4 })
@@ -8622,7 +8637,7 @@ struct VideoPlayerPage {
                       .fontColor(this.episodePressed ? this.playerFollowTheme ? this.customThemeColor : ('app.color.color_bilibili_pink') : $r('app.color.color_player_text_secondary'))
                       .margin({ top: 3 })
                   }
-                  .width(51).height(51).borderRadius(25.5)
+                  .width(this.NAV_BTN_SIZE).height(this.NAV_BTN_SIZE).borderRadius(this.NAV_BTN_SIZE / 2)
                   .backgroundColor(this.getComponentBg(this.cardStyleVideoNavBtns))
                   .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
                   .margin({ left: 4, right: 4 })
@@ -8641,7 +8656,7 @@ struct VideoPlayerPage {
                     .fontColor(this.minimizePressed ? this.playerFollowTheme ? this.customThemeColor : ('app.color.color_bilibili_pink') : $r('app.color.color_player_text_secondary'))
                     .margin({ top: 3 })
                 }
-                .width(51).height(51).borderRadius(25.5)
+                .width(this.NAV_BTN_SIZE).height(this.NAV_BTN_SIZE).borderRadius(this.NAV_BTN_SIZE / 2)
                 .backgroundColor(this.getComponentBg(this.cardStyleVideoNavBtns))
                 .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
                 .margin({ left: 4, right: 4 })
@@ -8658,7 +8673,7 @@ struct VideoPlayerPage {
                     .fontColor(this.darkModePressed ? this.playerFollowTheme ? this.customThemeColor : ('app.color.color_bilibili_pink') : $r('app.color.color_player_text_secondary'))
                     .margin({ top: 3 })
                 }
-                .width(51).height(51).borderRadius(25.5)
+                .width(this.NAV_BTN_SIZE).height(this.NAV_BTN_SIZE).borderRadius(this.NAV_BTN_SIZE / 2)
                 .backgroundColor(this.getComponentBg(this.cardStyleVideoNavBtns))
                 .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
                 .margin({ left: 4, right: 4 })
@@ -8675,7 +8690,7 @@ struct VideoPlayerPage {
                     .fontColor(this.detailCommentBtnPressed ? this.playerFollowTheme ? this.customThemeColor : ('app.color.color_bilibili_pink') : $r('app.color.color_player_text_secondary'))
                     .margin({ top: 3 })
                 }
-                .width(90).height(51).borderRadius(25.5)
+                .width(this.NAV_BTN_CAPSULE_W).height(this.NAV_BTN_SIZE).borderRadius(this.NAV_BTN_SIZE / 2)
                 .backgroundColor(this.getComponentBg(this.cardStyleVideoNavBtns))
                 .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
                 .margin({ left: 4, right: 4 })
@@ -8700,7 +8715,7 @@ struct VideoPlayerPage {
                     .fontColor(this.rotationPressed ? this.playerFollowTheme ? this.customThemeColor : ('app.color.color_bilibili_pink') : $r('app.color.color_player_text_secondary'))
                     .margin({ top: 3 })
                 }
-                .width(51).height(51).borderRadius(25.5)
+                .width(this.NAV_BTN_SIZE).height(this.NAV_BTN_SIZE).borderRadius(this.NAV_BTN_SIZE / 2)
                 .backgroundColor(this.getComponentBg(this.cardStyleVideoNavBtns))
                 .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
                 .margin({ left: 4, right: 4 })
@@ -8718,14 +8733,14 @@ struct VideoPlayerPage {
                       .fontColor(this.layoutSwapPressed ? this.playerFollowTheme ? this.customThemeColor : ('app.color.color_bilibili_pink') : $r('app.color.color_player_text_secondary'))
                       .margin({ top: 3 })
                   }
-                  .width(51).height(51).borderRadius(25.5)
+                  .width(this.NAV_BTN_SIZE).height(this.NAV_BTN_SIZE).borderRadius(this.NAV_BTN_SIZE / 2)
                   .backgroundColor(this.getComponentBg(this.cardStyleVideoNavBtns))
                   .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
                   .margin({ left: 4, right: 4 })
                   .onClick(() => this.toggleLayoutSwap())
                 }
               }
-              .margin({ top: 6, bottom: 6 })
+              .margin({ top: this.NAV_BTN_ROW_MARGIN, bottom: this.NAV_BTN_ROW_MARGIN })
               .transition(TransitionEffect.asymmetric(
                 TransitionEffect.translate({ x: 30 }).combine(TransitionEffect.opacity(0))
                   .animation({ duration: 250, curve: Curve.EaseOut }),
@@ -8747,7 +8762,7 @@ struct VideoPlayerPage {
                       .fontColor(this.layoutSwapPressed ? this.playerFollowTheme ? this.customThemeColor : ('app.color.color_bilibili_pink') : $r('app.color.color_player_text_secondary'))
                       .margin({ top: 3 })
                   }
-                  .width(51).height(51).borderRadius(25.5)
+                  .width(this.NAV_BTN_SIZE).height(this.NAV_BTN_SIZE).borderRadius(this.NAV_BTN_SIZE / 2)
                   .backgroundColor(this.getComponentBg(this.cardStyleVideoNavBtns))
                   .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
                   .margin({ left: 4, right: 4 })
@@ -8765,7 +8780,7 @@ struct VideoPlayerPage {
                     .fontColor(this.rotationPressed ? this.playerFollowTheme ? this.customThemeColor : ('app.color.color_bilibili_pink') : $r('app.color.color_player_text_secondary'))
                     .margin({ top: 3 })
                 }
-                .width(51).height(51).borderRadius(25.5)
+                .width(this.NAV_BTN_SIZE).height(this.NAV_BTN_SIZE).borderRadius(this.NAV_BTN_SIZE / 2)
                 .backgroundColor(this.getComponentBg(this.cardStyleVideoNavBtns))
                 .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
                 .margin({ left: 4, right: 4 })
@@ -8782,7 +8797,7 @@ struct VideoPlayerPage {
                     .fontColor(this.detailCommentBtnPressed ? this.playerFollowTheme ? this.customThemeColor : ('app.color.color_bilibili_pink') : $r('app.color.color_player_text_secondary'))
                     .margin({ top: 3 })
                 }
-                .width(90).height(51).borderRadius(25.5)
+                .width(this.NAV_BTN_CAPSULE_W).height(this.NAV_BTN_SIZE).borderRadius(this.NAV_BTN_SIZE / 2)
                 .backgroundColor(this.getComponentBg(this.cardStyleVideoNavBtns))
                 .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
                 .margin({ left: 4, right: 4 })
@@ -8807,7 +8822,7 @@ struct VideoPlayerPage {
                     .fontColor(this.darkModePressed ? this.playerFollowTheme ? this.customThemeColor : ('app.color.color_bilibili_pink') : $r('app.color.color_player_text_secondary'))
                     .margin({ top: 3 })
                 }
-                .width(51).height(51).borderRadius(25.5)
+                .width(this.NAV_BTN_SIZE).height(this.NAV_BTN_SIZE).borderRadius(this.NAV_BTN_SIZE / 2)
                 .backgroundColor(this.getComponentBg(this.cardStyleVideoNavBtns))
                 .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
                 .margin({ left: 4, right: 4 })
@@ -8824,7 +8839,7 @@ struct VideoPlayerPage {
                     .fontColor(this.minimizePressed ? this.playerFollowTheme ? this.customThemeColor : ('app.color.color_bilibili_pink') : $r('app.color.color_player_text_secondary'))
                     .margin({ top: 3 })
                 }
-                .width(51).height(51).borderRadius(25.5)
+                .width(this.NAV_BTN_SIZE).height(this.NAV_BTN_SIZE).borderRadius(this.NAV_BTN_SIZE / 2)
                 .backgroundColor(this.getComponentBg(this.cardStyleVideoNavBtns))
                 .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
                 .margin({ left: 4, right: 4 })
@@ -8842,7 +8857,7 @@ struct VideoPlayerPage {
                       .fontColor(this.episodePressed ? this.playerFollowTheme ? this.customThemeColor : ('app.color.color_bilibili_pink') : $r('app.color.color_player_text_secondary'))
                       .margin({ top: 3 })
                   }
-                  .width(51).height(51).borderRadius(25.5)
+                  .width(this.NAV_BTN_SIZE).height(this.NAV_BTN_SIZE).borderRadius(this.NAV_BTN_SIZE / 2)
                   .backgroundColor(this.getComponentBg(this.cardStyleVideoNavBtns))
                   .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
                   .margin({ left: 4, right: 4 })
@@ -8860,14 +8875,14 @@ struct VideoPlayerPage {
                        .fontColor(this.seasonPressed ? this.playerFollowTheme ? this.customThemeColor : ('app.color.color_bilibili_pink') : $r('app.color.color_player_text_secondary'))
                        .margin({ top: 3 })
                    }
-                   .width(51).height(51).borderRadius(25.5)
+                   .width(this.NAV_BTN_SIZE).height(this.NAV_BTN_SIZE).borderRadius(this.NAV_BTN_SIZE / 2)
                    .backgroundColor(this.getComponentBg(this.cardStyleVideoNavBtns))
                    .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
                    .margin({ left: 4, right: 4 })
                    .onClick(() => { this.seasonScale = 0.85; this.seasonPressed = true; setTimeout(() => { this.seasonScale = 1; this.seasonPressed = false; }, 150); this.showSeasonSheet = true; })
                  }
                }
-              .margin({ top: 6, bottom: 6 })
+              .margin({ top: this.NAV_BTN_ROW_MARGIN, bottom: this.NAV_BTN_ROW_MARGIN })
               .transition(TransitionEffect.asymmetric(
                 TransitionEffect.translate({ x: -30 }).combine(TransitionEffect.opacity(0))
                   .animation({ duration: 250, curve: Curve.EaseOut }),
