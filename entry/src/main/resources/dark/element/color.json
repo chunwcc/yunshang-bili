@@ -1,0 +1,124 @@
+{
+  "color": [
+    {
+      "name": "start_window_background",
+      "value": "#000000"
+    },
+    {
+      "name": "search_history_text",
+      "value": "#FFFFFF"
+    },
+    {
+      "name": "color_primary_text",
+      "value": "#FFFFFF"
+    },
+    {
+      "name": "color_secondary_text",
+      "value": "#CCCCCC"
+    },
+    {
+      "name": "color_icon",
+      "value": "#FFFFFF"
+    },
+    {
+      "name": "color_background",
+      "value": "#121212"
+    },
+    {
+      "name": "color_surface",
+      "value": "#2C2C2C"
+    },
+    {
+      "name": "color_divider",
+      "value": "#333333"
+    },
+    {
+      "name": "color_theme",
+      "value": "#007DFF"
+    },
+    {
+      "name": "color_player_background",
+      "value": "#000000"
+    },
+    {
+      "name": "color_player_surface",
+      "value": "#1E1E1E"
+    },
+    {
+      "name": "color_player_text",
+      "value": "#FFFFFF"
+    },
+    {
+      "name": "color_player_text_secondary",
+      "value": "#999999"
+    },
+    {
+      "name": "color_player_text_tertiary",
+      "value": "#CCCCCC"
+    },
+    {
+      "name": "color_player_text_dim",
+      "value": "#888888"
+    },
+    {
+      "name": "color_player_text_desc",
+      "value": "#BBBBBB"
+    },
+    {
+      "name": "color_player_divider",
+      "value": "#BBBBBB"
+    },
+    {
+      "name": "color_player_divider_thin",
+      "value": "#BBBBBB"
+    },
+    {
+      "name": "color_bilibili_pink",
+      "value": "#FB7299"
+    },
+    {
+      "name": "color_error",
+      "value": "#FF6B6B"
+    },
+    {
+      "name": "color_overlay_light",
+      "value": "#40FFFFFF"
+    },
+    {
+      "name": "color_overlay_medium",
+      "value": "#88FFFFFF"
+    },
+    {
+      "name": "color_overlay_dark",
+      "value": "#60000000"
+    },
+    {
+      "name": "color_shadow",
+      "value": "#40000000"
+    },
+    {
+      "name": "color_comment_background",
+      "value": "#2C2C2C"
+    },
+    {
+      "name": "color_comment_selected",
+      "value": "#1A1A1A"
+    },
+    {
+      "name": "color_comment_bubble",
+      "value": "#3A3A3A"
+    },
+    {
+      "name": "live_quality_text_title",
+      "value": "#FFFFFF"
+    },
+    {
+      "name": "live_quality_text_selected",
+      "value": "#FFFFFF"
+    },
+    {
+      "name": "live_quality_text_unselected",
+      "value": "#B3B3B3"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "src": [
+    "pages/Index",
+    "pages/BilibiliLoginPage",
+    "pages/QrCodeLoginPage",
+    "pages/DisplaySettingsPage",
+    "pages/VideoPlayerPage",
+    "pages/SearchPage",
+    "pages/WatchHistoryPage",
+    "pages/FavoritesPage",
+    "pages/AboutPage",
+    "pages/RecommendDetectionPage",
+    "pages/CommentDetailPage",
+    "pages/DynamicDetailPage",
+    "pages/UpSpacePage",
+    "pages/WhisperDetailPage",
+    "pages/MsgNoticePage",
+    "pages/LivePlayerPage",
+    "pages/OfflineCachePage",
+    "pages/DashPocPage"
+  ]
+}

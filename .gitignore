@@ -1,0 +1,83 @@
+/node_modules
+/oh_modules
+/local.properties
+/.idea
+
+# ── 签名凭据（切勿提交）──
+# 自动签名凭据在用户目录下，不会出现在仓库里；
+# 但项目内若存放 .p12/.cer 等，一旦泄露可被用于签署冒名应用。
+sign/
+*.p12
+*.p7b
+*.csr
+*.cer
+*.jks
+*.keystore
+
+# ── B站客户端签名密钥（本地专用，切勿提交）──
+# 仓库只提供 AppKeys.example.ets，克隆后复制为 AppKeys.ets 并填入自己的凭据
+entry/src/main/ets/utils/AppKeys.ets
+# build-profile.json5 内含明文 keyPassword / storePassword，不入库
+build-profile.json5
+**/build
+/.hvigor
+.cxx
+/.clangd
+/.clang-format
+/.clang-tidy
+**/.test
+/.appanalyzer
+# 个人记忆文件（不进 git）
+/.atomcode/
+# IDE 工具本地数据
+/.codegraph/
+/.deveco/
+# 项目启动脚本（个人使用）
+/_start.bat
+
+ceshi/
+
+# 调试产物（UI dump / 截图）
+/screen.jpeg
+/ui_tree.json
+/.ui_dump/
+/chat_now.png
+/shot_chat2.png
+/chat_align.png
+
+# ── 一次性调试产物（构建日志 / 截图 / UI dump / 一次性脚本 / 崩溃转储）──
+# 为什么加这段：这类文件曾在根目录累积到 424 个，把 git status 淹没了。
+# 2026-09-15 已整体归档到 .workbuddy/_archive/2026-09-15-debug-artifacts/，
+# 想还原就在那个目录跑 restore.py（移动归档，不删除）。
+/_*
+!/_start.bat
+/*.jpeg
+/*.png
+/*.patch
+/*.log
+/*.dmp
+/build_*.txt
+/fix_*.ps1
+/find_*.ps1
+/new_*.txt
+
+# ── 本地数据：会话记忆 / IDE 计划 / 工具快照，不进 git ──
+# 注意 _archive 只忽略子目录（归档内容 80M 不进 git），
+# 归档脚本本身 .workbuddy/_archive/move_debug_artifacts.py 仍可被跟踪复用。
+/.workbuddy/memory/
+/.workbuddy/_archive/*/
+/.zcode/
+/.merkle-snapshot.json
+
+# ── 本地设计稿 / 生成图 / 一次性校验输出，不进 git ──
+# design-refs 是 UI 改版时对着比稿的参考图，generated-images 是 AI 出图的原图（两者合计约 15M，
+# 代码里没有任何引用）；_imgcheck.txt 是出图后校验 URL 可达性的一次性输出。
+# 需要留档时按 .workbuddy/_archive 的做法整体归档，不要解除忽略直接提交。
+/design-refs/
+/generated-images/
+/.workbuddy/_imgcheck.txt
+
+# 本地临时产物（设计对照图 / 页面备份 / 探针脚本）
+/*.jpg
+*.bak-*
+/.workbuddy/_probe/

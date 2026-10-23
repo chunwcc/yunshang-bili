@@ -1,0 +1,32 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "模块描述"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "主入口"
+    },
+    {
+      "name": "permission_reason_read_media",
+      "value": "用于选取照片作为应用壁纸"
+    },
+    {
+      "name": "EntryFormAbility_label",
+      "value": "B站卡片"
+    },
+    {
+      "name": "EntryFormAbility_desc",
+      "value": "在桌面显示B站信息"
+    },
+    {
+      "name": "widget_display_name",
+      "value": "B站"
+    },
+    {
+      "name": "widget_desc",
+      "value": "Bilibili 桌面卡片"
+    }
+  ]
+}
