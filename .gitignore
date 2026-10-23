@@ -15,10 +15,8 @@ sign/
 *.keystore
 
 # ── B站客户端签名密钥（本地专用，切勿提交）──
-# 仓库只提供 AppKeys.example.ets，克隆后复制为 AppKeys.ets 并填入自己的凭据
-entry/src/main/ets/utils/AppKeys.ets
 # build-profile.json5 内含明文 keyPassword / storePassword，不入库
-build-profile.json5
+/build-profile.json5
 **/build
 /.hvigor
 .cxx
