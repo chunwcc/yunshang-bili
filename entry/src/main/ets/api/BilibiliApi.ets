@@ -5924,3 +5924,87 @@ export async function getDynamicDetail(dynIdStr: string): Promise<SpaceDynamicIt
     httpRequest.destroy();
   }
 }
+
+// ─────────────────────────────────────────────
+// 用户关系列表（粉丝 / 关注）
+// ─────────────────────────────────────────────
+
+/** 关系列表中的用户项（粉丝/关注通用） */
+export interface RelationUserItem {
+  mid: number;
+  uname: string;
+  face: string;
+  sign: string;
+  special: number;   // 关注列表：1 = 特别关注
+}
+
+export interface RelationListResult {
+  users: RelationUserItem[];
+  total: number;
+  hasMore: boolean;
+}
+
+interface RelationListItemRaw {
+  mid: number;
+  uname: string;
+  face: string;
+  sign: string;
+  special: number;
+}
+
+interface RelationListData {
+  list: RelationListItemRaw[];
+  total: number;
+}
+
+interface RelationListResponse {
+  code: number;
+  message: string;
+  data?: RelationListData;
+}
+
+/**
+ * 拉取用户关系列表（Web 端公开接口）
+ * @param type 'fans' = 粉丝列表（followers）；'following' = 关注列表（followings）
+ * @param pn 页码（从 1 开始）；ps 每页数量
+ * ⚠️ followings 查他人时 B 站仅返回部分数据（官方风控），查自己完整
+ */
+export async function fetchRelationList(mid: number, type: string, pn: number, ps: number): Promise<RelationListResult> {
+  const api: string = type === 'following'
+    ? 'https://api.bilibili.com/x/relation/followings'
+    : 'https://api.bilibili.com/x/relation/followers';
+  const url: string = `${api}?vmid=${mid}&pn=${pn}&ps=${ps}&order=desc`;
+  const httpRequest = http.createHttp();
+  try {
+    const response = await httpRequest.request(url, {
+      method: http.RequestMethod.GET,
+      header: getBiliRequestHeaders(),
+      connectTimeout: 10000,
+      readTimeout: 10000
+    });
+    if (response.responseCode !== 200) {
+      throw new Error(`HTTP ${response.responseCode}`);
+    }
+    const data = JSON.parse(response.result as string) as RelationListResponse;
+    if (data.code !== 0 || !data.data) {
+      throw new Error(`API错误 code=${data.code}: ${data.message}`);
+    }
+    const users: RelationUserItem[] = [];
+    const rawList: RelationListItemRaw[] = data.data.list || [];
+    for (const raw of rawList) {
+      users.push({
+        mid: raw.mid,
+        uname: raw.uname,
+        face: raw.face,
+        sign: raw.sign,
+        special: raw.special || 0
+      });
+    }
+    const total: number = data.data.total || 0;
+    const hasMore: boolean = users.length >= ps && pn * ps < total;
+    logInfo(`[fetchRelationList] type=${type} pn=${pn} 返回 ${users.length} 条, total=${total}, hasMore=${hasMore}`);
+    return { users, total, hasMore };
+  } finally {
+    httpRequest.destroy();
+  }
+}
