@@ -846,11 +846,11 @@ struct UpSpacePage {
 
       // 数据条：上下 hairline + 三栏（投稿/粉丝/关注）
       Row() {
-        this.statCell(fmtN(this.totalCount), '投稿')
+        this.statCell('count', '投稿')
         Column().width(1).height('100%').backgroundColor(this.hairlineSoft())
-        this.statCell(fmtN(this.relationStat?.follower ?? 0), '粉丝')
+        this.statCell('follower', '粉丝')
         Column().width(1).height('100%').backgroundColor(this.hairlineSoft())
-        this.statCell(fmtN(this.relationStat?.following ?? 0), '关注')
+        this.statCell('following', '关注')
       }
       .width('100%')
       .height(52)
@@ -903,11 +903,27 @@ struct UpSpacePage {
     })
   }
 
-  /** A1 数据条单元：衬线数字 + letterspacing 小标签（点击行为参考 B 站官方） */
+  /**
+   * ⭐ 数据条数值（按数据种类取值）：
+   * @Builder 按值传参（value: string）不建立状态刷新依赖——relationStat 异步到达后
+   * Text 仍显示求值快照 "0"，直到横屏等其它状态触发 build 重跑才正确显示。
+   * 改为在 @Builder 内渲染期直接读取 @State，数据到达即刷新。
+   */
+  private statText(kind: string): string {
+    if (kind === 'count') {
+      return fmtN(this.totalCount);
+    }
+    if (kind === 'follower') {
+      return fmtN(this.relationStat?.follower ?? 0);
+    }
+    return fmtN(this.relationStat?.following ?? 0);
+  }
+
+  /** A1 数据条单元：衬线数字 + letterspacing 小标签 */
   @Builder
-  statCell(value: string, label: string) {
+  statCell(kind: string, label: string) {
     Column() {
-      Text(value)
+      Text(this.statText(kind))
         .fontFamily('serif')
         .fontSize(16)
         .fontWeight(FontWeight.Bold)
@@ -1107,9 +1123,9 @@ struct UpSpacePage {
 
           // 纵列数据（每行：衬线数字 + 小标签，行间 hairline）
           Column() {
-            this.railStat(fmtN(this.totalCount), '投稿')
-            this.railStat(fmtN(this.relationStat?.follower ?? 0), '粉丝')
-            this.railStat(fmtN(this.relationStat?.following ?? 0), '关注')
+            this.railStat('count', '投稿')
+            this.railStat('follower', '粉丝')
+            this.railStat('following', '关注')
           }
           .width('100%')
           .margin({ top: 12 })
@@ -1185,9 +1201,9 @@ struct UpSpacePage {
 
   /** A1 横屏 rail 纵列数据行（点击行为与竖屏 statCell 一致） */
   @Builder
-  railStat(value: string, label: string) {
+  railStat(kind: string, label: string) {
     Row() {
-      Text(value)
+      Text(this.statText(kind))
         .fontFamily('serif')
         .fontSize(16)
         .fontWeight(FontWeight.Bold)
