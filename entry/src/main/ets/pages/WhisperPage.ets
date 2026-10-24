@@ -1,5 +1,5 @@
 // WhisperPage.ets — 私聊会话列表页（消息页）
-import { router, mediaquery, display } from '@kit.ArkUI';
+import { router, mediaquery, display, curves } from '@kit.ArkUI';
 import { preferences } from '@kit.ArkData';
 import { common } from '@kit.AbilityKit';
 import { hdsMaterial } from '@kit.UIDesignKit';
@@ -46,6 +46,18 @@ export struct WhisperPage {
   @State hasMore: boolean = false;
   /** 加载更多中 */
   @State isLoadingMore: boolean = false;
+  /** 下拉刷新中（⭐ 与首页同款指示器 + 逐卡弹入动画） */
+  @State isRefreshing: boolean = false;
+  /** 下拉刷新指示器文案（与首页 customRefreshComponent 同款状态机） */
+  @State refreshBuilderText: string = '下拉刷新';
+  // ⭐ 刷新完成会话卡片逐卡弹入（与首页 refreshData 两段式同款：旧卡错落淡出 → 新卡错落弹入）
+  @State sessionVisible: boolean[] = [];
+  @State animateSessions: boolean = false;
+  private sessionDelays: number[] = [];
+  private sessionTranslateYs: number[] = [];
+  // ⭐ 底栏重复点击消息 Tab（与动态页同款）：未置顶 → 回顶；已置顶 → 刷新
+  @StorageProp('scrollToTopFlag') @Watch('onScrollToTopFlag') scrollToTopFlag: number = 0;
+  @StorageProp('refreshMsgFlag') @Watch('onRefreshMsgFlag') refreshMsgFlag: number = 0;
   /** 分页 offset */
   private offsetBytes: Uint8Array | null = null;
   /** 四类通知未读数（回复/@/赞/系统） */
@@ -103,6 +115,10 @@ export struct WhisperPage {
    *    否则会把本该隐藏的底栏"展开"出来。
    */
   private onMsgListScroll(absoluteOffset: number): void {
+    // ⭐ 上报消息页滚动偏移（Index.handleTabClick 判断回顶/刷新用；放守卫前：横屏分栏同样上报）
+    // ⚠️ 必须用 setOrCreate：msgScrollOffset 无 @StorageLink/@StorageProp 声明预创建 key，
+    //    AppStorage.set 对不存在的 key 静默失败（返回 false 不写入）→ Index 恒读到 0 → 回顶永远不触发
+    AppStorage.setOrCreate('msgScrollOffset', absoluteOffset);
     if (this.msgTabAutoHide || this.isLandscape) {
       return;
     }
@@ -216,6 +232,77 @@ export struct WhisperPage {
     } catch (err) {
       logError(`[WhisperPage] 跳转通知页失败: ${errMsg(err)}`);
     }
+  }
+
+  /**
+   * 下拉刷新（与首页 refreshData 两段式同款）：
+   * ① 旧会话卡随机错落淡出（0~300ms）→ ② 并发重拉未读数 + 会话列表 →
+   * ③ 新会话卡随机错落弹入（弹簧曲线，仿首页逐卡入场）
+   */
+  private async refreshAll(): Promise<void> {
+    // ① 旧卡错落淡出（数据保留，卡片 opacity→0 / scale→0.8 / translateY 下沉）
+    const oldCount = this.sessions.length;
+    if (oldCount > 0) {
+      this.animateSessions = true;
+      for (let i = 0; i < oldCount; i++) {
+        const idx = i;
+        const delay = Math.floor(Math.random() * 300);
+        setTimeout(() => {
+          const nv = [...this.sessionVisible];
+          if (idx < nv.length) {
+            nv[idx] = false;
+            this.sessionVisible = nv;
+          }
+        }, delay);
+      }
+    }
+    // ② 重拉（保留旧数据展示，避免白屏）
+    try {
+      await Promise.all([this.loadUnread(), this.loadSessions()]);
+    } catch (err) {
+      logWarn(`[WhisperPage] 刷新失败: ${errMsg(err)}`);
+    } finally {
+      this.isRefreshing = false;
+    }
+    // ③ 新卡错落弹入（0~600ms 随机延迟 + 随机下沉距离，弹簧曲线带回弹）
+    const count = this.sessions.length;
+    if (count > 0) {
+      this.sessionVisible = new Array<boolean>(count).fill(false);
+      this.sessionDelays = [];
+      this.sessionTranslateYs = [];
+      for (let i = 0; i < count; i++) {
+        this.sessionDelays.push(Math.floor(Math.random() * 600));
+        this.sessionTranslateYs.push(Math.floor(Math.random() * 40) + 15);
+      }
+      setTimeout(() => {
+        this.animateSessions = true;
+        for (let i = 0; i < count; i++) {
+          const idx = i;
+          setTimeout(() => {
+            const nv = [...this.sessionVisible];
+            if (idx < nv.length) {
+              nv[idx] = true;
+              this.sessionVisible = nv;
+            }
+          }, this.sessionDelays[idx]);
+        }
+      }, 120);
+    }
+  }
+
+  /** 底栏重复点击消息 Tab（未置顶）→ 会话列表回顶（与动态页同款动画） */
+  private onScrollToTopFlag(): void {
+    this.listScroller.scrollTo({
+      xOffset: 0,
+      yOffset: 0,
+      animation: { duration: 300, curve: Curve.EaseOut }
+    });
+  }
+
+  /** 底栏重复点击消息 Tab（已置顶）→ 刷新会话列表（点亮原生指示器） */
+  private onRefreshMsgFlag(): void {
+    this.isRefreshing = true;
+    this.refreshAll();
   }
 
   /**
@@ -584,6 +671,27 @@ export struct WhisperPage {
     })
   }
 
+  /** 下拉刷新指示器（与首页 customRefreshComponent 同款：LoadingProgress + 文案，随拖拽状态切换） */
+  @Builder
+  msgRefreshIndicator() {
+    Stack() {
+      Column() {
+        LoadingProgress()
+          .width(32)
+          .height(32)
+          .color(this.customThemeColor)
+        Text(this.refreshBuilderText)
+          .fontSize(12)
+          .fontColor(this.isDarkMode ? '#FFFFFF' : '#000000')
+          .margin({ top: 4 })
+      }
+      .alignItems(HorizontalAlign.Center)
+    }
+    .alignContent(Alignment.Center)
+    .width('100%')
+    .height(60)
+  }
+
   /**
    * 会话列表主体（透明透出 Index 全局壁纸 + 占位/通知入口/会话列表）
    * ⚠️ 抽为 @Builder：横屏分栏左栏与竖屏单页共用
@@ -596,7 +704,7 @@ export struct WhisperPage {
       //    且全局层统一处理 builtin/custom/default/custom_color 等壁纸类型
       Column() {
         // ── 会话列表（通知入口已内嵌为首个列表项，随列表滑动）──
-      if (this.isLoading) {
+      if (this.isLoading && this.sessions.length === 0) {
         Column() {
           LoadingProgress().width(32).height(32).color('#FF6699')
           Text('加载中...').fontSize(13).fontColor('#999999').margin({ top: 8 })
@@ -604,7 +712,7 @@ export struct WhisperPage {
         .width('100%')
         .layoutWeight(1)
         .justifyContent(FlexAlign.Center)
-      } else if (this.loadError) {
+      } else if (this.loadError && this.sessions.length === 0) {
         Column() {
           Text(this.loadError).fontSize(14).fontColor('#FF4444')
           Button('重试')
@@ -631,6 +739,8 @@ export struct WhisperPage {
         .layoutWeight(1)
         .justifyContent(FlexAlign.Center)
       } else {
+        // ⭐ 下拉刷新（与首页同款指示器）：会话列表外包 Refresh；刷新期间保留旧列表数据
+        Refresh({ refreshing: $$this.isRefreshing, builder: this.msgRefreshIndicator() }) {
         List({ space: this.cardListMargin, scroller: this.listScroller }) {
           // ⚠️ 顶部空白占位（不带颜色，露出整页自定义背景）：竖屏 50vp / 横屏 20vp
           ListItem() {
@@ -709,6 +819,22 @@ export struct WhisperPage {
             ListItem() {
               this.sessionRow(s)
             }
+            // ⭐ 刷新逐卡动画（与首页卡片同款）：淡出 = opacity 0 / 缩小 0.8 / 下沉；
+            //    弹入 = 弹簧曲线回弹复位。未开启动画或越界下标时保持原样（分页追加项不动画）
+            .opacity(this.sessionVisible.length > index ? (this.sessionVisible[index] ? 1 : 0) : 1)
+            .scale({
+              x: this.sessionVisible.length > index ? (this.sessionVisible[index] ? 1 : 0.8) : 1,
+              y: this.sessionVisible.length > index ? (this.sessionVisible[index] ? 1 : 0.8) : 1
+            })
+            .translate({
+              y: this.sessionVisible.length > index
+                ? (this.sessionVisible[index] ? 0 : (this.sessionTranslateYs[index] || 60))
+                : 0
+            })
+            .animation(!this.animateSessions ? { duration: 0 } : {
+              duration: 1400,
+              curve: curves.springCurve(0.15, 1, 80, 8)
+            })
             // ⚠️ key 必须包含 face：face 异步补取后 key 变化 → 触发重建渲染头像（否则 skip mark dirty 不刷新）
             //    emoteReady：表情表加载完成后强制重建，刷新 [xxx] 预览文字为表情图片
           }, (s: ImSession, index: number) => `${s.talkerUid}_${s.face.length > 0 ? '1' : '0'}_${this.emoteReady ? 1 : 0}_${index}`)
@@ -721,7 +847,7 @@ export struct WhisperPage {
           }
         }
         .width('100%')
-        .layoutWeight(1)
+        .height('100%')
         .scrollBar(BarState.Off)
         .padding({ left: this.cardListMargin, right: this.cardListMargin })
         // ⭐ 滑动联动底栏显隐（与首页/动态页同款；用绝对偏移算 delta）
@@ -730,6 +856,25 @@ export struct WhisperPage {
         })
         .onReachEnd(() => {
           this.loadMore();
+        })
+        }
+        // ⭐ Refresh 承载原 List 的尺寸属性；onRefreshing 触发并发重拉
+        .width('100%')
+        .layoutWeight(1)
+        // ⭐ 指示器文案状态机（与首页同款语义，去掉"长拉打开搜索"）
+        .onStateChange((refreshStatus: RefreshStatus) => {
+          if (refreshStatus === RefreshStatus.Drag) {
+            this.refreshBuilderText = '下拉刷新';
+          } else if (refreshStatus === RefreshStatus.OverDrag) {
+            this.refreshBuilderText = '释放刷新';
+          } else if (refreshStatus === RefreshStatus.Refresh) {
+            this.refreshBuilderText = '正在刷新';
+          } else if (refreshStatus === RefreshStatus.Done) {
+            this.refreshBuilderText = '刷新成功';
+          }
+        })
+        .onRefreshing(() => {
+          this.refreshAll();
         })
       }
       }
