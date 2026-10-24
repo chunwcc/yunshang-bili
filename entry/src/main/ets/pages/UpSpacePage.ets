@@ -903,7 +903,7 @@ struct UpSpacePage {
     })
   }
 
-  /** A1 数据条单元：衬线数字 + letterspacing 小标签 */
+  /** A1 数据条单元：衬线数字 + letterspacing 小标签（点击行为参考 B 站官方） */
   @Builder
   statCell(value: string, label: string) {
     Column() {
@@ -920,6 +920,10 @@ struct UpSpacePage {
     }
     .layoutWeight(1)
     .alignItems(HorizontalAlign.Center)
+    .clickEffect({ level: 1, scale: 0.9 })
+    .onClick(() => {
+      this.onStatCellClick(label);
+    })
   }
 
   /** LV 胶囊（主题色底白字） */
@@ -1179,7 +1183,7 @@ struct UpSpacePage {
     .padding({ left: this.cardListMargin, right: 0, top: this.statusBarHeight + this.cardListMargin, bottom: this.cardListMargin })
   }
 
-  /** A1 横屏 rail 纵列数据行 */
+  /** A1 横屏 rail 纵列数据行（点击行为与竖屏 statCell 一致） */
   @Builder
   railStat(value: string, label: string) {
     Row() {
@@ -1197,6 +1201,40 @@ struct UpSpacePage {
     .width('100%')
     .padding({ top: 6, bottom: 6 })
     .border({ width: { bottom: 1 }, color: this.hairlineSoft() })
+    .clickEffect({ level: 1, scale: 0.97 })
+    .onClick(() => {
+      this.onStatCellClick(label);
+    })
+  }
+
+  /**
+   * ⭐ 数据条点击（参考 B 站官方）：
+   * 投稿 → 切到投稿 Tab 并滚回列表顶；粉丝 → 粉丝列表页；关注 → 关注列表页
+   */
+  private onStatCellClick(label: string): void {
+    if (label === '投稿') {
+      if (this.activeTab !== 'video') {
+        this.switchTab('video');
+      }
+      this.videoScroller.scrollTo({
+        xOffset: 0,
+        yOffset: 0,
+        animation: { duration: 300, curve: Curve.EaseOut }
+      });
+      return;
+    }
+    const type: string = label === '关注' ? 'following' : 'fans';
+    const title: string = label === '关注' ? '关注列表' : '粉丝列表';
+    this.getUIContext().getRouter().pushUrl({
+      url: 'pages/RelationListPage',
+      params: {
+        mid: this.mid,
+        type: type,
+        title: title
+      }
+    }).catch((err: Error) => {
+      logWarn(`[UpSpacePage] 进入${title}失败: ${err.message}`);
+    });
   }
 
   /**

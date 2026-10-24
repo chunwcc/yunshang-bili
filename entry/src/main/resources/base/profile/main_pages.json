@@ -13,6 +13,7 @@
     "pages/CommentDetailPage",
     "pages/DynamicDetailPage",
     "pages/UpSpacePage",
+    "pages/RelationListPage",
     "pages/WhisperDetailPage",
     "pages/MsgNoticePage",
     "pages/LivePlayerPage",
