@@ -32,6 +32,8 @@ export struct VideoCardComponent {
   @StorageLink('cardListBorderRadius') cardListBorderRadius: number = 12;
   @StorageLink('cardListMargin') cardListMargin: number = 0;
   @StorageLink('da') da: boolean = false;
+  // ⭐ 长按菜单变形期间被浮层接管的封面 id（隐藏源封面避免双影）
+  @StorageLink('morphActiveCoverId') morphActiveCoverId: string = '';
 
   aboutToReuse(params: Record<string, Object>): void {
     if (params.item) {
@@ -48,6 +50,10 @@ export struct VideoCardComponent {
         .borderRadius(this.cardListBorderRadius)
         .backgroundColor('#E0E0E0')
         .draggable(false)
+        .id(`cover_${this.item.id}`)
+        // ⭐ 长按菜单浮层接管封面变形期间隐藏源封面（占位保持布局），
+        //    浮层初始位置/尺寸/圆角与源完全重合 → 无缝交换
+        .visibility(this.item.id === this.morphActiveCoverId ? Visibility.Hidden : Visibility.Visible)
         .onComplete(() => {
           // 封面加载完成，在原 HomePage 中会调用 releaseDecodeSlot
         })

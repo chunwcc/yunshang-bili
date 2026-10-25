@@ -14,6 +14,10 @@ import { UserBehaviorService } from '../services/UserBehaviorService';  // ⭐ �
 import { VideoCardComponent } from '../components/VideoCardComponent';
 import { formatPlayCountText, getPlayCountDisplayColor } from '../utils/PlayCountStyle';
 import { HdsMiniBarButton } from '../components/infra/HdsMiniBarButton';
+import { cardItemBg, cardItemBorder } from '../utils/CardStyle';
+import { http } from '@kit.NetworkKit';
+import { photoAccessHelper } from '@kit.MediaLibraryKit';
+import { fileIo, fileUri } from '@kit.CoreFileKit';
 
 // ⭐ 已看视频缓存接口（带时间戳，支持7天有效期）
 interface WatchedVideoCache {
@@ -192,9 +196,28 @@ export struct HomePage {
   }
   @State manualLoading: boolean = false;
 
-  // ⭐ 底部弹窗相关状态
+  // ⭐ 长按菜单弹窗相关状态（页面内 overlay：封面丝滑变形 + 胶囊菜单 + 模糊渐强）
   @State isMenuSheetVisible: boolean = false;
   @State selectedMenuItem: RecommendItem | null = null;
+  // ⭐ 封面浮层（变形载体）：初始与源封面完全重合，animateTo 逐帧插值 position/scale/圆角
+  @State morphDstW: number = 0;      // 浮层布局宽（目标宽，固定；尺寸变化靠 scale）
+  @State morphX: number = 0;         // 浮层左上 X（position 动画）
+  @State morphY: number = 0;         // 浮层左上 Y
+  @State morphScale: number = 1;     // 浮层缩放（初始=源宽/目标宽，动画到 1）
+  @State morphRadius: number = 12;   // 浮层圆角（初始=卡片圆角/scale 补偿，动画到卡片圆角）
+  @State menuX: number = 0;          // 菜单列位置（固定目标位置，不参与变形）
+  @State menuY: number = 0;
+  @State menuW: number = 0;          // 菜单列宽（竖屏=封面宽；横屏固定 220 胶囊列居右）
+  // ⭐ 遮罩/菜单淡入淡出（状态驱动：关闭时浮层须存活到回弹动画结束，不能靠 transition 卸载）
+  @State maskOpacity: number = 0;
+  @State menuOpacity: number = 0;
+  @State menuScale: number = 0.92;
+  // 源封面参数（关闭回弹用）
+  private morphSrcX: number = 0;
+  private morphSrcY: number = 0;
+  private morphSrcScale: number = 1;
+  private morphSrcRadius: number = 12;
+  private morphTimerId: number = -1;
 
   // ⭐ 已看视频 ID 集合（用于去重）- 使用Map存储时间戳，支持7天有效期
   private watchedVideoIds: Map<string, number> = new Map();  // id -> timestamp
@@ -437,6 +460,8 @@ export struct HomePage {
       if (this.isLandscape !== newIsLandscape) {
         logInfo(`[HomePage] 方向变化: ${newIsLandscape ? '横屏' : '竖屏'}`);
         this.isLandscape = newIsLandscape;
+        // ⭐ 长按菜单弹窗打开中 → 旋转后位置全部失效，自动关闭
+        this.dismissMenuIfOpen();
         // ⭐ 先同步 paddings 和 carouselHeight，在异步加载之前让 build 拿到正确值
         this.updatePaddings();
         this.recalcCarouselHeight();
@@ -622,6 +647,8 @@ export struct HomePage {
         const newIsLandscape = size.width > size.height;
         if (newIsLandscape !== this.isLandscape) {
           this.isLandscape = newIsLandscape;
+          // ⭐ 长按菜单弹窗打开中 → 旋转后位置全部失效，自动关闭
+          this.dismissMenuIfOpen();
         }
         this.updatePaddings();
         this.recalcCarouselHeight();
@@ -1280,11 +1307,241 @@ export struct HomePage {
   }
 
   /**
-   * ⭐ 显示视频菜单（底部弹窗）
+   * ⭐ 显示视频菜单（官方图库式"丝滑变形"）
+   * 1. getRectangleById 取源封面屏幕 rect，浮层以相同 rect 上树（同帧隐藏源封面 → 无缝交换）
+   * 2. 下一帧 animateTo 驱动浮层 position/scale/圆角逐帧变形到屏幕中央（弹簧过冲）
+   * 3. 遮罩(backdropBlur)与胶囊菜单同步出现，模糊渐强
    */
   private showVideoMenu(item: RecommendItem): void {
     this.selectedMenuItem = item;
-    this.isMenuSheetVisible = true;
+    try {
+      const ui = this.getUIContext();
+      // ⚠️ getRectangleById 的 windowOffset/size 单位是 **px**（SDK d.ts 明确标注），必须经 px2vp 转换。
+      // 弹窗挂在 bindContentCover 模态层（全窗口，含状态栏/Tab 栏上方），
+      // 模态内容区原点 = 窗口原点，故 position 直接使用窗口坐标（无需减页面偏移）。
+      const rect = ui.getComponentUtils().getRectangleById(`cover_${item.id}`);
+      const displayInfo = display.getDefaultDisplaySync();
+      const screenW: number = ui.px2vp(displayInfo.width);
+      const screenH: number = ui.px2vp(displayInfo.height);
+      const isLandscape: boolean = screenW > screenH;
+      // 目标布局：竖屏=85% 宽 16:9 封面 + 下方胶囊列（组合垂直居中）；
+      //          横屏=封面居左 + 胶囊列居右（组合水平居中）
+      const menuH: number = 6 * 46 + 5 * 10;
+      let dstW: number;
+      let dstH: number;
+      let dstX: number;
+      let dstY: number;
+      if (isLandscape) {
+        // 横屏：封面高度取屏高 55%（16:9 反推宽度），胶囊列固定宽 220 居右
+        dstH = Math.round(screenH * 0.55);
+        dstW = Math.round(dstH * 16 / 9);
+        const gapH: number = 24;
+        const menuW: number = 220;
+        const totalW: number = dstW + gapH + menuW;
+        const groupX: number = Math.round((screenW - totalW) / 2);
+        dstX = groupX;
+        dstY = Math.round((screenH - dstH) / 2);
+        this.menuW = menuW;
+        this.menuX = dstX + dstW + gapH;
+        this.menuY = Math.round((screenH - menuH) / 2);
+      } else {
+        // 竖屏：85% 宽 16:9 封面 + 间隙 + 胶囊列
+        dstW = Math.round(screenW * 0.85);
+        dstH = Math.round(dstW * 9 / 16);
+        const gap: number = 12;
+        const totalH: number = dstH + gap + menuH;
+        dstX = Math.round((screenW - dstW) / 2);
+        dstY = Math.round((screenH - totalH) / 2);
+        this.menuW = dstW;
+        this.menuX = dstX;
+        this.menuY = dstY + dstH + gap;
+      }
+      // 源封面 rect（px→vp，窗口坐标）
+      const srcW: number = ui.px2vp(rect.size.width);
+      const srcH: number = ui.px2vp(rect.size.height);
+      const srcCX: number = ui.px2vp(rect.windowOffset.x) + srcW / 2;
+      const srcCY: number = ui.px2vp(rect.windowOffset.y) + srcH / 2;
+      const srcScale: number = srcW / dstW;
+      // 保存源参数（关闭回弹）
+      this.morphSrcX = srcCX - dstW / 2;
+      this.morphSrcY = srcCY - dstH / 2;
+      this.morphSrcScale = srcScale;
+      this.morphSrcRadius = this.cardListBorderRadius / srcScale; // 圆角补偿：视觉圆角=卡片圆角
+      // 浮层初值 = 源 rect（与源封面完全重合）；遮罩/菜单淡入初值置 0（上树帧无模糊闪烁）
+      this.morphDstW = dstW;
+      this.morphX = this.morphSrcX;
+      this.morphY = this.morphSrcY;
+      this.morphScale = srcScale;
+      this.morphRadius = this.morphSrcRadius;
+      this.maskOpacity = 0;
+      this.menuOpacity = 0;
+      this.menuScale = 0.92;
+      // 隐藏源封面 + 模态上树（同帧无缝交换；模态层盖住 Tab 栏 → 模糊覆盖全窗口）
+      AppStorage.setOrCreate('morphActiveCoverId', item.id);
+      this.isMenuSheetVisible = true;
+      // 下一帧：丝滑变形（position/scale/圆角逐帧插值）+ 遮罩模糊渐强 + 菜单稍后弹出
+      if (this.morphTimerId >= 0) {
+        clearTimeout(this.morphTimerId);
+      }
+      this.morphTimerId = setTimeout(() => {
+        const uic = this.getUIContext();
+        uic.animateTo({
+          duration: 800,
+          curve: curves.springCurve(0.15, 1, 80, 12)
+        }, () => {
+          this.morphX = dstX;
+          this.morphY = dstY;
+          this.morphScale = 1;
+          this.morphRadius = this.cardListBorderRadius;
+        });
+        uic.animateTo({
+          duration: 250,
+          curve: Curve.EaseOut
+        }, () => {
+          this.maskOpacity = 1;
+        });
+        uic.animateTo({
+          delay: 120,
+          duration: 500,
+          curve: curves.springCurve(0.15, 1, 80, 12)
+        }, () => {
+          this.menuOpacity = 1;
+          this.menuScale = 1;
+        });
+      }, 0);
+    } catch (err) {
+      // 兜底：rect 获取失败时直接弹（无变形动画）
+      logError(`[视频菜单] 获取封面位置失败: ${errMsg(err)}`);
+      this.isMenuSheetVisible = true;
+    }
+  }
+
+  /**
+   * ⭐ 关闭视频菜单：浮层反向变形回源封面位置（丝滑回弹）+ 遮罩/菜单同步淡出。
+   * ⚠️ 不能立即卸载模态（exit transition 无法承载属性回弹动画）——
+   *    保持挂载 320ms 让回弹动画跑完，再同帧卸载模态 + 恢复源封面（无缝换回）。
+   */
+  private closeVideoMenu(): void {
+    this.getUIContext().animateTo({
+      duration: 300,
+      curve: Curve.EaseOut
+    }, () => {
+      this.morphX = this.morphSrcX;
+      this.morphY = this.morphSrcY;
+      this.morphScale = this.morphSrcScale;
+      this.morphRadius = this.morphSrcRadius;
+      this.maskOpacity = 0;
+      this.menuOpacity = 0;
+      this.menuScale = 0.92;
+    });
+    if (this.morphTimerId >= 0) {
+      clearTimeout(this.morphTimerId);
+      this.morphTimerId = -1;
+    }
+    this.morphTimerId = setTimeout(() => {
+      this.isMenuSheetVisible = false;
+      AppStorage.setOrCreate('morphActiveCoverId', '');
+    }, 320);
+  }
+
+  /**
+   * ⭐ 横竖屏切换时若长按菜单弹窗处于打开状态 → 自动关闭。
+   * ⚠️ 旋转后浮层/源封面的位置全部失效（列表重排、坐标系翻转），
+   *    不做回弹动画，直接同帧卸载模态 + 恢复源封面显示。
+   */
+  private dismissMenuIfOpen(): void {
+    if (!this.isMenuSheetVisible) {
+      return;
+    }
+    if (this.morphTimerId >= 0) {
+      clearTimeout(this.morphTimerId);
+      this.morphTimerId = -1;
+    }
+    this.isMenuSheetVisible = false;
+    this.maskOpacity = 0;
+    this.menuOpacity = 0;
+    this.menuScale = 0.92;
+    AppStorage.setOrCreate('morphActiveCoverId', '');
+    logInfo('[视频菜单] 横竖屏切换，自动关闭弹窗');
+  }
+
+  /**
+   * ⭐ 保存视频封面到系统图库（免权限）
+   * http 下载封面 → 沙箱临时文件 → showAssetsCreationDialog（系统"保存到图库"确认框）
+   * → 用返回的目标 URI 写入媒体库
+   */
+  private async saveCover(): Promise<void> {
+    const item = this.selectedMenuItem;
+    if (!item || !item.coverUrl) {
+      this.getUIContext().getPromptAction().showToast({ message: '封面无效' });
+      return;
+    }
+    try {
+      // 1. 下载封面（Accept 强制 jpeg 优先，避免 CDN 返回 webp）
+      const client = http.createHttp();
+      const reqHeader: Record<string, string> = { 'Accept': 'image/jpeg,image/png,image/*;q=0.8' };
+      const response = await client.request(item.coverUrl, {
+        method: http.RequestMethod.GET,
+        expectDataType: http.HttpDataType.ARRAY_BUFFER,
+        header: reqHeader,
+        connectTimeout: 10000,
+        readTimeout: 15000
+      });
+      const buffer = response.result as ArrayBuffer;
+      client.destroy();
+      if (response.responseCode !== 200 || buffer.byteLength === 0) {
+        this.getUIContext().getPromptAction().showToast({ message: `封面下载失败(${response.responseCode})` });
+        return;
+      }
+      // 2. 扩展名判定：优先按响应 Content-Type（B 站 CDN 可能对 .jpg URL 返回 webp，
+      //    扩展名与实际内容不匹配会被图库以 -2004 拒绝），URL 后缀兜底
+      let ext: string = 'jpg';
+      const headers = response.header as Record<string, string>;
+      const contentType: string = (headers['content-type'] ?? headers['Content-Type'] ?? '').toLowerCase();
+      if (contentType.indexOf('webp') >= 0) {
+        ext = 'webp';
+      } else if (contentType.indexOf('png') >= 0) {
+        ext = 'png';
+      } else if (contentType.indexOf('gif') >= 0) {
+        ext = 'gif';
+      } else if (contentType.indexOf('jpeg') >= 0 || contentType.indexOf('jpg') >= 0) {
+        ext = 'jpg';
+      } else {
+        const m = item.coverUrl.split('?')[0].match(/\.(jpg|jpeg|png|webp|gif)$/i);
+        if (m) {
+          ext = m[1].toLowerCase();
+        }
+      }
+      const context = getContext(this) as common.UIAbilityContext;
+      const tmpPath = `${context.cacheDir}/cover_${item.id}.${ext}`;
+      const tmpFile = fileIo.openSync(tmpPath, fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC);
+      fileIo.writeSync(tmpFile.fd, buffer);
+      fileIo.closeSync(tmpFile);
+      // 3. 系统"保存到图库"确认框（用户确认后返回可写目标 URI；取消返回空数组）
+      // ⚠️ srcFileUris 必须用 fileUri.getUriFromPath 生成合法文件 URI（file://<bundle>/...），
+      //    手工拼 "file://<path>" 无法被框架识别 → 对话框进程判定参数无效 →
+      //    不加载 UI → SetUIContent 4 秒超时 → 14000011 Internal system error
+      const helper = photoAccessHelper.getPhotoAccessHelper(context);
+      const creationConfigs: Array<photoAccessHelper.PhotoCreationConfig> = [
+        { photoType: photoAccessHelper.PhotoType.IMAGE, title: `bili_cover_${item.id}`, fileNameExtension: ext }
+      ];
+      const srcUri: string = fileUri.getUriFromPath(tmpPath);
+      const dstUris: Array<string> =
+        await helper.showAssetsCreationDialog([srcUri], creationConfigs);
+      if (dstUris.length === 0) {
+        logInfo('[保存封面] 用户取消保存');
+        return;
+      }
+      // 4. 将封面字节写入目标 URI（媒体库）
+      const dstFile = fileIo.openSync(dstUris[0], fileIo.OpenMode.READ_WRITE);
+      fileIo.writeSync(dstFile.fd, buffer);
+      fileIo.closeSync(dstFile);
+      logInfo(`[保存封面] 成功: id=${item.id}, ext=${ext}, size=${buffer.byteLength}`);
+      this.getUIContext().getPromptAction().showToast({ message: '封面已保存' });
+    } catch (err) {
+      logError(`[保存封面] 异常: ${errMsg(err)}`);
+      this.getUIContext().getPromptAction().showToast({ message: `保存失败: ${errMsg(err)}` });
+    }
   }
 
   /**
@@ -1455,76 +1712,89 @@ export struct HomePage {
   }
 
   /**
-   * ⭐ 底部菜单弹窗内容
+   * ⭐ 长按菜单弹窗内容（官方图库式丝滑变形）
+   * 层级：模糊遮罩（渐强/渐弱）→ 变形封面浮层（position/scale/圆角逐帧动画）→ 胶囊菜单
    */
   @Builder
   menuSheetContent() {
     Column() {
-      Column() {
-        // 顶部拖动条
-        Row() {
-          Row()
-            .width(36)
-            .height(4)
-            .backgroundColor(this.isDarkMode ? '#666666' : '#CCCCCC')
-            .borderRadius(2)
-        }
+      // ① 全屏模糊遮罩（无半透明色，纯大半径 backdropBlur；opacity 状态驱动=模糊渐强/渐弱）
+      Column()
         .width('100%')
-        .justifyContent(FlexAlign.Center)
-        .margin({ top: 12, bottom: 16 })
+        .height('100%')
+        .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
+        .backdropBlur(60)
+        .opacity(this.maskOpacity)
+        .onClick(() => {
+          this.closeVideoMenu();
+        })
 
-        // 菜单选项
-        Column({ space: 12 }) {
-          // 不感兴趣
-          this.MenuItemButton('不感兴趣', () => {
-            this.isMenuSheetVisible = false;
-            if (this.selectedMenuItem) {
-              this.handleDislike(this.selectedMenuItem);
-            }
-          })
+      // ② 变形封面浮层：长按时与源封面重合上树，animateTo 逐帧变形成中央大图
+      Image(this.selectedMenuItem?.coverUrl ?? '')
+        .width(this.morphDstW)
+        .aspectRatio(16 / 9)
+        .objectFit(ImageFit.Cover)
+        .position({ x: this.morphX, y: this.morphY })
+        .scale({ x: this.morphScale, y: this.morphScale })
+        .borderRadius(this.morphRadius)
+        .clip(true)
 
-          // 屏蔽UP主
-          this.MenuItemButton('屏蔽UP主', () => {
-            this.isMenuSheetVisible = false;
-            if (this.selectedMenuItem) {
-              this.handleBlockUploader(this.selectedMenuItem);
-            }
-          })
+      // ③ 菜单选项（每个选项独立胶囊，参考私信列表样式；固定目标位置）
+      Column({ space: 10 }) {
+        // 不感兴趣
+        this.MenuItemButton('不感兴趣', () => {
+          this.closeVideoMenu();
+          if (this.selectedMenuItem) {
+            this.handleDislike(this.selectedMenuItem);
+          }
+        })
 
-          // 拉黑UP主
-          this.MenuItemButton('拉黑UP主', () => {
-            this.isMenuSheetVisible = false;
-            if (this.selectedMenuItem) {
-              this.handleBlacklistUploader(this.selectedMenuItem);
-            }
-          })
+        // 屏蔽UP主
+        this.MenuItemButton('屏蔽UP主', () => {
+          this.closeVideoMenu();
+          if (this.selectedMenuItem) {
+            this.handleBlockUploader(this.selectedMenuItem);
+          }
+        })
 
-          // 看过类似
-          this.MenuItemButton('看过类似', () => {
-            this.isMenuSheetVisible = false;
-            if (this.selectedMenuItem) {
-              this.handleSeenBefore(this.selectedMenuItem);
-            }
-          })
+        // 拉黑UP主
+        this.MenuItemButton('拉黑UP主', () => {
+          this.closeVideoMenu();
+          if (this.selectedMenuItem) {
+            this.handleBlacklistUploader(this.selectedMenuItem);
+          }
+        })
 
-          // 取消
-          this.MenuItemButton('取消', () => {
-            this.isMenuSheetVisible = false;
-          }, true)
-        }
-        .width('100%')
-        .padding({ left: 16, right: 16, bottom: 30 })
+        // 看过类似
+        this.MenuItemButton('看过类似', () => {
+          this.closeVideoMenu();
+          if (this.selectedMenuItem) {
+            this.handleSeenBefore(this.selectedMenuItem);
+          }
+        })
+
+        // 保存视频封面
+        this.MenuItemButton('保存视频封面', () => {
+          this.closeVideoMenu();
+          this.saveCover();
+        })
+
+        // 取消
+        this.MenuItemButton('取消', () => {
+          this.closeVideoMenu();
+        }, true)
       }
-      .width(this.isLandscape ? '100%' : '85%')
-      .backgroundColor(this.isDarkMode ? '#1A1A1A' : '#FFFFFF')
-      .borderRadius(20)
+      .width(this.menuW)
+      .position({ x: this.menuX, y: this.menuY })
+      .opacity(this.menuOpacity)
+      .scale({ x: this.menuScale, y: this.menuScale })
     }
     .width('100%')
-    .alignItems(HorizontalAlign.Center)
+    .height('100%')
   }
 
   /**
-   * ⭐ 菜单项按钮
+   * ⭐ 菜单项按钮：独立胶囊样式（参考私信列表——cardItemBg/cardItemBorder 联动「卡片样式」设置）
    */
   @Builder
   MenuItemButton(text: string, onClick: () => void, isCancelButton: boolean = false) {
@@ -1532,10 +1802,17 @@ export struct HomePage {
       .fontSize(15)
       .fontColor(isCancelButton ? '#FFFFFF' : (this.isDarkMode ? '#FFFFFF' : '#000000'))
       .width('100%')
-      .height(50)
+      .height(46)
       .textAlign(TextAlign.Center)
-      .backgroundColor(isCancelButton ? this.customThemeColor : (this.isDarkMode ? '#2A2A2A' : '#F5F5F5'))
-      .borderRadius(20)
+      .backgroundColor(isCancelButton
+        ? this.customThemeColor
+        : cardItemBg(this.isDarkMode, this.cardTransparentStyle, this.cardBgOpacity))
+      .borderRadius(23)
+      .border({
+        width: !isCancelButton && this.cardTransparentStyle ? this.cardBorderWidth : 0,
+        color: cardItemBorder(this.isDarkMode, this.cardTransparentStyle,
+          this.cardBorderOpacity, this.cardBorderFollowTheme, this.customThemeColor)
+      })
       .onClick(() => onClick())
   }
 
@@ -2041,13 +2318,14 @@ export struct HomePage {
     .height('100%')
     .backgroundColor('transparent')
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
-    .bindSheet($$this.isMenuSheetVisible, this.menuSheetContent(), {
-      height: SheetSize.FIT_CONTENT,
+    // ⭐ 长按菜单：全窗口模态层（盖住底部 Tab 栏 → 模糊覆盖全窗口）。
+    //    变形动画是浮层属性动画（非 geometryTransition），模态只做承载层。
+    //    不带 $$：开关完全由 isMenuSheetVisible 手动控制（关闭须延迟到回弹动画结束）。
+    .bindContentCover(this.isMenuSheetVisible, this.menuSheetContent(), {
+      modalTransition: ModalTransition.NONE,
       backgroundColor: Color.Transparent,
-      dragBar: false,
-      showClose: false,
-      onDisappear: () => {
-        this.isMenuSheetVisible = false;
+      onWillDismiss: (dismiss: DismissContentCoverAction) => {
+        this.closeVideoMenu();
       }
     })
   }
