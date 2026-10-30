@@ -1,0 +1,1086 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>竖屏沉浸流 · 设计稿 v1 · 基于「关灯」模式</title>
+<style>
+/* ============================================================
+   竖屏沉浸流设计稿（静态原型，无外部依赖）
+   目标设备：1320 × 2120 px @3x → 440 × 707 vp
+   画面全部用 CSS 场景占位，数据为演示示例。
+   ============================================================ */
+:root{
+  --pink:#FB7299;
+  --W:440px;
+  --H:707px;
+  --text:#f2f4f8;
+  --sub:#98a0af;
+  --line:rgba(255,255,255,.085);
+  --panel:rgba(255,255,255,.035);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  min-height:100vh;
+  color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","HarmonyOS Sans SC","Microsoft YaHei",sans-serif;
+  -webkit-font-smoothing:antialiased;
+  background:
+    radial-gradient(1100px 680px at 10% -12%, rgba(251,114,153,.13), transparent 62%),
+    radial-gradient(900px 600px at 92% -4%, rgba(78,124,255,.12), transparent 58%),
+    #07080c;
+}
+button{font-family:inherit}
+
+/* ---------- 顶部标题 ---------- */
+.wrap{max-width:1240px;margin:0 auto;padding:34px 28px 56px}
+.head{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin-bottom:26px;flex-wrap:wrap}
+.kicker{font-size:11px;letter-spacing:.18em;color:#6f7787;text-transform:uppercase;margin-bottom:10px}
+h1{margin:0;font-size:30px;line-height:1.15;letter-spacing:-.01em;font-weight:700}
+h1 span{font-size:13px;font-weight:500;color:#7f8796;letter-spacing:.02em;margin-left:10px}
+.lede{margin:10px 0 0;font-size:13.5px;line-height:1.7;color:var(--sub);max-width:710px}
+.lede b{color:#fff;font-weight:600}
+.pills{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.pill{font-size:11.5px;color:#aeb5c2;border:1px solid var(--line);background:var(--panel);padding:7px 11px;border-radius:999px;white-space:nowrap}
+.pill.hot{color:var(--pink);border-color:rgba(251,114,153,.35);background:rgba(251,114,153,.08)}
+
+/* ---------- 主布局 ---------- */
+.board{display:grid;grid-template-columns:var(--W) minmax(360px,1fr);gap:40px;align-items:start}
+.stage{position:sticky;top:18px}
+
+/* ---------- 手机 ---------- */
+.phone{
+  position:relative;width:var(--W);height:var(--H);
+  border-radius:36px;background:#000;
+  border:1px solid rgba(255,255,255,.15);
+  box-shadow:
+    0 0 0 8px rgba(255,255,255,.022),
+    0 40px 90px -24px rgba(0,0,0,.9),
+    0 0 120px -20px rgba(251,114,153,.18);
+  overflow:hidden;
+}
+.screen{
+  position:absolute;inset:0;border-radius:35px;overflow:hidden;
+  background:#000;touch-action:none;user-select:none;cursor:grab;
+}
+.screen.dragging{cursor:grabbing}
+.track{position:absolute;inset:0;will-change:transform}
+
+/* ---------- 每一页 ---------- */
+.page{
+  position:absolute;left:0;width:var(--W);height:var(--H);overflow:hidden;background:#000;
+  top:calc(var(--i) * var(--H));
+}
+.page-bg{position:absolute;inset:0;overflow:hidden}
+.page-bg .dim{position:absolute;inset:0;background:rgba(0,0,0,.72)}
+.page-bg .scene{filter:blur(30px) brightness(.5) saturate(1.2);transform:scale(1.18)}
+.video-fill{position:absolute;inset:0;overflow:hidden}
+.video-box{
+  position:absolute;left:0;right:0;top:88px;height:247.5px;
+  overflow:hidden;background:#000;outline:1px solid rgba(255,255,255,.06);outline-offset:-1px;
+}
+.video-box .scene{transform:scale(1.02)}
+
+/* ---------- 场景占位（纯 CSS，模拟视频画面） ---------- */
+.scene{position:absolute;inset:0;overflow:hidden;background:#05060a}
+.scene-city{
+  background:
+    radial-gradient(95% 62% at 18% 74%, rgba(255,45,117,.40), transparent 58%),
+    radial-gradient(82% 56% at 82% 20%, rgba(64,120,255,.36), transparent 60%),
+    linear-gradient(180deg,#05070f 0%,#0a1024 46%,#151a2f 100%);
+}
+.scene-city .horizon{position:absolute;left:-12%;right:-12%;bottom:16%;height:24%;background:linear-gradient(180deg,rgba(255,110,160,.24),transparent);filter:blur(20px)}
+.scene-city .skyline{
+  position:absolute;left:-4%;right:-4%;bottom:0;height:36%;
+  background:linear-gradient(180deg,rgba(8,12,26,.15),#04060d 72%);
+  clip-path:polygon(0 46%,4% 46%,4% 31%,9% 31%,9% 53%,14% 53%,14% 37%,18% 37%,18% 61%,24% 61%,24% 23%,29% 23%,29% 49%,34% 49%,34% 35%,39% 35%,39% 65%,45% 65%,45% 43%,50% 43%,50% 19%,55% 19%,55% 56%,60% 56%,60% 39%,65% 39%,65% 63%,70% 63%,70% 29%,75% 29%,75% 51%,80% 51%,80% 41%,85% 41%,85% 59%,90% 59%,90% 33%,95% 33%,95% 49%,100% 49%,100% 100%,0 100%);
+}
+.scene-city .streak{
+  position:absolute;left:-30%;top:57%;width:160%;height:2px;
+  background:linear-gradient(90deg,transparent,rgba(255,224,190,.95),transparent);
+  box-shadow:0 0 20px 5px rgba(255,180,120,.45);
+  transform:rotate(-6deg);animation:streak 7s ease-in-out infinite;
+}
+@keyframes streak{0%,100%{opacity:.18;transform:translateX(-18%) rotate(-6deg)}50%{opacity:1;transform:translateX(18%) rotate(-6deg)}}
+.bokeh-set{position:absolute;inset:0}
+.bokeh{
+  position:absolute;border-radius:50%;background:rgba(255,205,130,.95);
+  box-shadow:0 0 18px 6px rgba(255,180,90,.35);
+  animation:bokeh 6s ease-in-out infinite alternate;
+}
+@keyframes bokeh{from{transform:translateY(0) scale(1);opacity:.5}to{transform:translateY(-14px) scale(1.15);opacity:.95}}
+.scene-tech{background:radial-gradient(70% 55% at 50% 38%, #2c3443 0%, #12151c 56%, #08090d 100%)}
+.scene-tech .prop{
+  position:absolute;left:50%;top:47%;width:112px;height:220px;
+  transform:translate(-50%,-50%) rotate(-9deg);border-radius:22px;
+  background:linear-gradient(150deg,#5d6879,#1b202b 56%,#0d1016);
+  box-shadow:
+    inset 0 0 0 1px rgba(255,255,255,.22),
+    inset 0 0 30px rgba(120,180,255,.18),
+    0 40px 70px rgba(0,0,0,.65);
+  animation:prop 9s ease-in-out infinite alternate;
+}
+.scene-tech .prop::before{content:'';position:absolute;inset:8px;border-radius:16px;background:linear-gradient(160deg,rgba(90,150,255,.35),rgba(0,0,0,.72) 56%)}
+.scene-tech .prop::after{
+  content:'';position:absolute;right:10px;top:50%;width:48px;height:48px;transform:translateY(-50%);
+  border-radius:12px;background:linear-gradient(145deg,#93a6c0,#202836);
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.32);
+}
+@keyframes prop{from{transform:translate(-50%,-50%) rotate(-9deg)}to{transform:translate(-50%,-51.5%) rotate(-7deg)}}
+.scene-tech .glare{position:absolute;inset:0;background:linear-gradient(115deg,transparent 40%,rgba(255,255,255,.09) 48%,transparent 57%);animation:glare 6s ease-in-out infinite}
+@keyframes glare{0%,100%{transform:translateX(-14%)}50%{transform:translateX(14%)}}
+.scene-neon{background:linear-gradient(165deg,#17002c 0%,#34003f 38%,#0a0014 100%)}
+.scene-neon .bars{position:absolute;inset:0;display:flex;gap:16px;justify-content:center;align-items:flex-end;padding-bottom:10%}
+.scene-neon .bars i{
+  width:13px;border-radius:8px 8px 0 0;
+  background:linear-gradient(180deg,#ff4fd8,rgba(120,60,255,.12));
+  box-shadow:0 0 24px 6px rgba(255,60,200,.32);
+  animation:bar 2.4s ease-in-out infinite alternate;
+}
+.scene-neon .bars i:nth-child(2n){background:linear-gradient(180deg,#4fe3ff,rgba(60,120,255,.1));box-shadow:0 0 24px 6px rgba(60,190,255,.3)}
+@keyframes bar{from{transform:scaleY(.55);opacity:.6}to{transform:scaleY(1);opacity:1}}
+.scene-loading{background:radial-gradient(60% 40% at 50% 44%,#171a24,#08090d 72%)}
+@keyframes shimmer{from{transform:translateX(-60%)}to{transform:translateX(60%)}}
+
+/* ---------- 顶部渐变 / 顶栏 ---------- */
+.shade{position:absolute;left:0;right:0;bottom:0;height:48%;background:linear-gradient(180deg,transparent,rgba(0,0,0,.58) 56%,rgba(0,0,0,.9));z-index:4;pointer-events:none}
+.topbar{
+  position:absolute;left:0;right:0;top:0;height:64px;z-index:7;
+  display:flex;align-items:center;gap:6px;padding:0 10px;
+  background:linear-gradient(180deg,rgba(0,0,0,.58),transparent);
+}
+.tb-btn{
+  width:40px;height:40px;border:0;background:none;color:#fff;border-radius:50%;
+  display:grid;place-items:center;cursor:pointer;position:relative;
+}
+.tb-btn:hover{background:rgba(255,255,255,.08)}
+.tb-btn svg{width:22px;height:22px;fill:#fff}
+.tb-btn .dot{position:absolute;right:8px;bottom:9px;width:6px;height:6px;border-radius:50%;background:#4ade80;box-shadow:0 0 6px #4ade80}
+.screen.hide-dm .tb-btn .dot{background:#6b7280;box-shadow:none}
+.tb-chip{
+  display:flex;align-items:center;gap:6px;height:30px;padding:0 11px;border-radius:999px;
+  font-size:11.5px;color:rgba(255,255,255,.92);letter-spacing:.02em;
+  background:rgba(10,10,14,.38);border:1px solid rgba(255,255,255,.11);
+  backdrop-filter:blur(10px);white-space:nowrap;
+}
+.tb-chip svg{width:14px;height:14px;stroke:#ffd479;fill:none}
+.spacer{flex:1}
+
+/* ---------- 弹幕 ---------- */
+.dm-layer{position:absolute;left:0;right:56px;top:8%;height:38%;z-index:5;overflow:hidden;pointer-events:none}
+.dm{
+  position:absolute;left:0;white-space:nowrap;font-size:15px;font-weight:600;color:#fff;
+  text-shadow:0 1px 3px rgba(0,0,0,.95),0 0 8px rgba(0,0,0,.55);
+  animation:dm-run linear infinite;
+}
+@keyframes dm-run{from{transform:translateX(var(--W))}to{transform:translateX(-125%)}}
+.screen.hide-dm .dm{display:none}
+.screen.paused .dm{animation-play-state:paused}
+.page.is-horizontal .dm-layer{top:auto;bottom:180px;height:26%;right:56px}
+.page.is-horizontal .dm{font-size:14px}
+
+/* ---------- 右栏 ---------- */
+.rail{position:absolute;right:10px;bottom:104px;z-index:6;display:flex;flex-direction:column;align-items:center;gap:17px}
+.avatar{
+  position:relative;width:48px;height:48px;border-radius:50%;border:1.5px solid rgba(255,255,255,.85);
+  background:none;padding:0;cursor:pointer;margin-bottom:10px;
+}
+.ava-face{
+  display:grid;place-items:center;width:100%;height:100%;border-radius:50%;
+  background:linear-gradient(145deg,#fb7299,#7a4dff);font-size:16px;font-weight:700;color:#fff;
+}
+.avatar .plus{
+  position:absolute;left:50%;bottom:-9px;transform:translateX(-50%);
+  width:18px;height:18px;border-radius:50%;background:var(--pink);color:#fff;
+  font-size:13px;font-style:normal;line-height:18px;text-align:center;font-weight:700;
+  box-shadow:0 2px 6px rgba(0,0,0,.4);
+}
+.avatar.followed .plus{display:none}
+.rail-item{
+  border:0;background:none;padding:0;cursor:pointer;color:#fff;
+  display:flex;flex-direction:column;align-items:center;gap:4px;
+}
+.ri-icon{
+  width:46px;height:46px;border-radius:50%;display:grid;place-items:center;
+  background:rgba(10,10,14,.38);border:1px solid rgba(255,255,255,.09);
+  backdrop-filter:blur(10px);transition:transform .15s ease,background .2s;
+}
+.rail-item:active .ri-icon{transform:scale(.92)}
+.ri-icon svg{width:24px;height:24px;fill:#fff;filter:drop-shadow(0 1px 2px rgba(0,0,0,.5))}
+.ri-num{font-size:10.5px;font-style:normal;color:rgba(255,255,255,.92);text-shadow:0 1px 3px #000;letter-spacing:.01em}
+.rail-item.on .ri-icon{background:rgba(251,114,153,.2);border-color:rgba(251,114,153,.55)}
+.rail-item.on .ri-icon svg{fill:var(--pink)}
+.rail-item.on .ri-num{color:var(--pink)}
+
+/* ---------- 底部信息 ---------- */
+.meta{position:absolute;left:16px;right:78px;bottom:36px;z-index:6;text-shadow:0 1px 5px rgba(0,0,0,.9)}
+.up{display:flex;align-items:center;gap:7px;min-height:26px}
+.up-ava{
+  width:26px;height:26px;border-radius:50%;display:grid;place-items:center;
+  background:linear-gradient(145deg,#fb7299,#7a4dff);font-size:11px;font-weight:700;color:#fff;
+  box-shadow:0 0 0 1px rgba(255,255,255,.25);
+}
+.up b{font-size:13px;font-weight:600;color:rgba(255,255,255,.95)}
+.follow{
+  margin-left:2px;border:0;border-radius:999px;background:var(--pink);color:#fff;
+  font-size:10.5px;font-weight:600;padding:4px 10px;cursor:pointer;line-height:1;
+}
+.follow.followed{background:rgba(255,255,255,.16);color:rgba(255,255,255,.8)}
+.title{
+  margin:9px 0 7px;font-size:16px;line-height:22px;font-weight:650;color:#fff;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+}
+.tags{font-size:11.5px;color:rgba(255,255,255,.68);line-height:1.5}
+.stat{margin-top:7px;font-size:10.5px;color:rgba(255,255,255,.52);letter-spacing:.01em}
+
+/* ---------- 进度条 ---------- */
+.progress{position:absolute;left:0;right:0;bottom:0;height:18px;z-index:8;cursor:pointer;touch-action:none}
+.progress .bar{position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(255,255,255,.17)}
+.progress .fill{position:absolute;left:0;bottom:0;height:3px;background:#fff;border-radius:0 2px 2px 0;box-shadow:0 0 6px rgba(255,255,255,.5)}
+.progress .time{position:absolute;right:14px;bottom:9px;font-size:10px;color:rgba(255,255,255,.72);text-shadow:0 1px 2px #000;font-variant-numeric:tabular-nums}
+.progress .knob{position:absolute;bottom:-3px;width:9px;height:9px;border-radius:50%;background:#fff;box-shadow:0 0 6px rgba(255,255,255,.65);transform:translateX(-50%);opacity:0;transition:opacity .15s}
+.screen.controls .progress .knob{opacity:1}
+
+/* ---------- 暂停 / 加载 ---------- */
+.center{position:absolute;inset:0;z-index:13;display:grid;place-items:center;opacity:0;transition:opacity .2s;pointer-events:none}
+.screen.paused .center{opacity:1}
+.center i{
+  width:66px;height:66px;border-radius:50%;display:grid;place-items:center;
+  background:rgba(0,0,0,.58);border:1px solid rgba(255,255,255,.3);backdrop-filter:blur(8px);
+  box-shadow:0 10px 34px rgba(0,0,0,.55);
+}
+.center svg{width:34px;height:34px;fill:#fff;margin-left:3px}
+.center .sub{margin-top:12px;font-size:12px;color:rgba(255,255,255,.72);text-shadow:0 1px 3px #000}
+.screen.paused .scene,.screen.paused .scene *{animation-play-state:paused}
+.center-wrap{display:flex;flex-direction:column;align-items:center}
+.spinner{width:38px;height:38px;border-radius:50%;border:2.5px solid rgba(255,255,255,.16);border-top-color:#fff;animation:spin .9s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading-box{position:absolute;inset:0;z-index:6;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:rgba(255,255,255,.8)}
+.loading-box b{font-size:13px;font-weight:500}
+.loading-box span{font-size:11px;color:rgba(255,255,255,.42)}
+.skeleton{position:absolute;left:16px;right:78px;bottom:42px;z-index:6}
+.sk{height:11px;border-radius:6px;background:rgba(255,255,255,.09);margin-top:9px;overflow:hidden;position:relative}
+.sk::after{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.12),transparent);animation:shimmer 1.5s linear infinite}
+.sk.w1{width:62%;height:15px}
+.sk.w2{width:88%}
+.sk.w3{width:44%}
+
+/* ---------- 上滑提示 / 下拉退出 / toast ---------- */
+.swipe-hint{
+  position:absolute;left:50%;bottom:196px;transform:translateX(-50%);z-index:9;
+  display:flex;flex-direction:column;align-items:center;gap:6px;
+  font-size:11.5px;color:rgba(255,255,255,.85);letter-spacing:.04em;
+  transition:opacity .3s;pointer-events:none;
+}
+.swipe-hint i{font-style:normal;font-size:16px;animation:bounce 1.5s ease-in-out infinite}
+@keyframes bounce{0%,100%{transform:translateY(0);opacity:.5}50%{transform:translateY(-7px);opacity:1}}
+.swipe-hint.hide{opacity:0}
+.pull-hint{
+  position:absolute;left:50%;top:72px;transform:translateX(-50%) translateY(-8px);z-index:9;
+  padding:7px 14px;border-radius:999px;font-size:11.5px;
+  background:rgba(251,114,153,.16);border:1px solid rgba(251,114,153,.4);color:#ffc7d8;
+  opacity:0;transition:opacity .18s,transform .18s;pointer-events:none;white-space:nowrap;
+}
+.pull-hint.on{opacity:1;transform:translateX(-50%) translateY(0)}
+.toast{
+  position:absolute;left:50%;bottom:120px;transform:translateX(-50%) translateY(8px);z-index:12;
+  max-width:320px;padding:9px 14px;border-radius:10px;font-size:11.5px;line-height:1.5;text-align:center;
+  background:rgba(16,17,22,.92);border:1px solid rgba(255,255,255,.12);color:#e9ecf2;
+  opacity:0;transition:opacity .2s,transform .2s;pointer-events:none;
+}
+.toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+
+/* ---------- 心形爆裂 ---------- */
+.burst{
+  position:absolute;z-index:11;width:74px;height:74px;transform:translate(-50%,-50%) scale(.4);
+  opacity:0;pointer-events:none;animation:burst .9s cubic-bezier(.16,.9,.3,1) forwards;
+}
+.burst svg{width:100%;height:100%;fill:var(--pink);filter:drop-shadow(0 0 14px rgba(251,114,153,.8))}
+@keyframes burst{
+  0%{opacity:0;transform:translate(-50%,-50%) scale(.3) rotate(-12deg)}
+  28%{opacity:1;transform:translate(-50%,-56%) scale(1.12) rotate(4deg)}
+  100%{opacity:0;transform:translate(-50%,-118%) scale(.9) rotate(10deg)}
+}
+
+/* ---------- 标注层 ---------- */
+.anno-layer{position:absolute;inset:0;z-index:10;pointer-events:none;display:none}
+.screen.anno-on .anno-layer{display:block}
+.anno{
+  position:absolute;transform:translate(-50%,-50%);
+  display:flex;align-items:center;gap:6px;
+}
+.anno b{
+  width:20px;height:20px;border-radius:50%;background:var(--pink);color:#fff;
+  font-size:10.5px;line-height:20px;text-align:center;font-weight:700;
+  box-shadow:0 0 0 3px rgba(251,114,153,.22),0 3px 10px rgba(0,0,0,.6);
+}
+.anno-land{
+  position:absolute;inset:0;z-index:10;pointer-events:none;display:none;
+}
+.screen.anno-on .anno-land{display:block}
+.anno-land .frame{position:absolute;border:1px dashed rgba(251,114,153,.65);border-radius:6px}
+.anno-land .frame::after{
+  content:attr(data-label);position:absolute;left:0;top:-17px;font-size:9.5px;color:#ffb7cb;
+  background:rgba(20,10,14,.8);padding:1px 5px;border-radius:4px;white-space:nowrap;
+}
+.anno-land .frame[data-side="right"]::after{left:auto;right:0}
+
+/* ---------- 舞台工具条 ---------- */
+.toolbar{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}
+.toolbar button{
+  border:1px solid var(--line);background:rgba(255,255,255,.04);color:#cbd1dc;
+  font-size:11.5px;padding:8px 11px;border-radius:9px;cursor:pointer;transition:.15s;
+}
+.toolbar button:hover{background:rgba(255,255,255,.09);color:#fff;border-color:rgba(255,255,255,.16)}
+.toolbar button.primary{background:rgba(251,114,153,.14);border-color:rgba(251,114,153,.4);color:#ffc7d8}
+.kbd-hint{margin-top:12px;font-size:11px;color:#5f6674;line-height:1.6}
+.legend{
+  display:none;flex-wrap:wrap;gap:6px 12px;margin-top:12px;font-size:10.5px;color:#8e96a5;
+}
+.screen.anno-on ~ .legend{display:flex}
+body.anno-on .legend{display:flex}
+.legend b{color:var(--pink);font-weight:700;margin-right:3px}
+
+/* ---------- 右侧规格 ---------- */
+.specs{display:flex;flex-direction:column;gap:14px;min-width:0}
+.card{
+  border:1px solid var(--line);border-radius:16px;padding:16px 18px;
+  background:linear-gradient(180deg,rgba(255,255,255,.045),rgba(255,255,255,.015));
+}
+.card.callout{border-color:rgba(251,114,153,.3);background:linear-gradient(180deg,rgba(251,114,153,.1),rgba(251,114,153,.025))}
+.card h3{
+  margin:0 0 11px;font-size:12px;letter-spacing:.08em;color:#d4d9e3;font-weight:600;
+  display:flex;align-items:center;gap:8px;text-transform:uppercase;
+}
+.card h3 .badge{
+  display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 5px;border-radius:5px;
+  background:rgba(251,114,153,.18);color:var(--pink);font-size:10px;letter-spacing:0;font-weight:700;
+}
+.card p{margin:0;font-size:12.5px;line-height:1.72;color:#a9b0bd}
+.card p + p{margin-top:8px}
+.card strong{color:#fff;font-weight:600}
+.card em{font-style:normal;color:var(--pink)}
+.card ul{margin:0;padding-left:16px;font-size:12.5px;line-height:1.75;color:#a9b0bd}
+.card li + li{margin-top:2px}
+.card li::marker{color:rgba(251,114,153,.7)}
+.kv{display:grid;grid-template-columns:96px 1fr;gap:7px 12px;font-size:12px;line-height:1.55}
+.kv b{color:#7f8796;font-weight:500}
+.kv span{color:#c6ccd7}
+table{width:100%;border-collapse:collapse;font-size:11.8px;line-height:1.5}
+th,td{text-align:left;padding:6px 4px;border-bottom:1px solid rgba(255,255,255,.055);vertical-align:top}
+th{color:#727a89;font-weight:500;white-space:nowrap}
+td{color:#c2c8d3}
+tr:last-child td{border-bottom:0}
+code{
+  font-family:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;
+  font-size:11px;background:rgba(255,255,255,.065);padding:1px 5px;border-radius:4px;color:#e7eaf0;
+}
+.risk{counter-reset:r}
+.risk li{position:relative;list-style:none;padding-left:24px}
+.risk li::before{
+  counter-increment:r;content:counter(r);
+  position:absolute;left:0;top:2px;width:16px;height:16px;border-radius:5px;
+  background:rgba(255,255,255,.07);color:#8f97a6;font-size:9.5px;text-align:center;line-height:16px;font-weight:700;
+}
+.risk{padding-left:0 !important}
+.footer{margin-top:18px;font-size:11px;color:#5e6573;line-height:1.7}
+
+@media (max-width:1040px){
+  .board{grid-template-columns:1fr}
+  .stage{position:static;display:flex;flex-direction:column;align-items:center}
+  .toolbar,.kbd-hint,.legend{width:var(--W)}
+  .specs{max-width:820px;margin:0 auto}
+}
+@media (prefers-reduced-motion:reduce){
+  *{animation-duration:.001s !important;animation-iteration-count:1 !important}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="head">
+    <div>
+      <div class="kicker">Design Draft · v1 · 2026-10-30</div>
+      <h1>竖屏沉浸流<span>Vertically Swipeable Feed</span></h1>
+      <p class="lede">
+        在现有「关灯」之上加一层上下滑切换：<b>单 XComponent、单 AVPlayer</b>，
+        上滑只换数据源，不新建播放页、不堆第二个 Surface。右侧标注了交互、尺寸、状态机与代码落点。
+      </p>
+    </div>
+    <div class="pills">
+      <div class="pill hot">不新建页面</div>
+      <div class="pill">440 × 707 vp</div>
+      <div class="pill">1320 × 2120 px @3x</div>
+      <div class="pill">关灯子状态</div>
+    </div>
+  </header>
+
+  <main class="board">
+    <!-- ================= 左：可交互原型 ================= -->
+    <section class="stage">
+      <div class="phone">
+        <div class="screen" id="screen">
+          <div class="track" id="track"></div>
+
+          <div class="center" id="pauseOverlay">
+            <div class="center-wrap"><i id="pauseIcon"></i><span class="sub">轻点继续播放</span></div>
+          </div>
+
+          <div class="anno-layer" id="annoDots"></div>
+          <div class="anno-land" id="annoFrames"></div>
+          <div class="pull-hint" id="pullHint">松手退出沉浸流</div>
+          <div class="swipe-hint" id="swipeHint"><span>上滑看下一条</span><i>↑</i></div>
+          <div class="toast" id="toast"></div>
+        </div>
+      </div>
+
+      <div class="toolbar">
+        <button data-tb="prev">上一条 ↓</button>
+        <button data-tb="next" class="primary">下一条 ↑</button>
+        <button data-tb="play">暂停</button>
+        <button data-tb="dm">弹幕：开</button>
+        <button data-tb="anno">标注</button>
+        <button data-tb="jump-h">横屏示例</button>
+        <button data-tb="jump-load">加载态</button>
+        <button data-tb="reset">重置</button>
+      </div>
+      <div class="kbd-hint">拖动手机屏幕，或按 ↑ / ↓ 切换 · 空格暂停 · D 弹幕 · A 标注 · 双击画面点赞</div>
+      <div class="legend">
+        <span><b>1</b>顶栏</span><span><b>2</b>视频区</span><span><b>3</b>弹幕层</span>
+        <span><b>4</b>右互动栏</span><span><b>5</b>信息区</span><span><b>6</b>进度条</span><span><b>7</b>下一条预览</span>
+      </div>
+    </section>
+
+    <!-- ================= 右：方案与规格 ================= -->
+    <aside class="specs">
+
+      <div class="card callout">
+        <h3><span class="badge">0</span>一句话结论</h3>
+        <p>
+          可行，而且<b>最省事的做法就是把它做成「关灯」的子状态</b>：关灯已有全屏画布、视频 fit 放大、
+          模糊封面背景和完整播放链路；沉浸流只在其上补三件事 ——
+          <em>竖向跟手位移</em>、<em>单实例换源</em>、<em>一层信息 HUD</em>。
+        </p>
+        <p>
+          不建议新建 <code>VerticalFeedPage</code> 再复制一套播放器：playurl 风控、DASH 转播站、
+          弹幕分段、心跳与续播这些坑都已经在 <code>VideoPlayerPage</code> 里踩完了，复制一份等于重踩一遍。
+        </p>
+      </div>
+
+      <div class="card">
+        <h3><span class="badge">1</span>交互映射</h3>
+        <table>
+          <tr><th>手势</th><th>行为</th><th>判定</th></tr>
+          <tr><td>上滑</td><td>下一条</td><td>位移 &gt; 0.16 屏 或 速度 &gt; 0.5 px/ms</td></tr>
+          <tr><td>下滑</td><td>上一条</td><td>同上，反向</td></tr>
+          <tr><td>首条下滑</td><td>回弹；超过 0.3 屏 → 退出沉浸流</td><td>橡皮筋 0.35 系数</td></tr>
+          <tr><td>单击画面</td><td>暂停 / 继续</td><td>延迟 260ms 等双击</td></tr>
+          <tr><td>双击画面</td><td>点赞 + 心形爆裂</td><td>取消单击计时</td></tr>
+          <tr><td>长按画面</td><td>2× 倍速（松手恢复）</td><td>沿用现有关灯逻辑</td></tr>
+          <tr><td>底部进度条</td><td>拖动 seek</td><td>热区 18vp，条高 3vp</td></tr>
+          <tr><td>返回 / 左上</td><td>退出沉浸流 → 回到关灯详情</td><td>当前条目的详情，不再回到旧视频</td></tr>
+        </table>
+        <p style="margin-top:10px">
+          注意：<b>沉浸流内要关掉「上下滑调亮度/音量」</b>。现有关灯的垂直手势在 <code>onTM</code> 里，
+          必须在 feed 模式提前 return，否则会和切条抢同一个手势。
+        </p>
+      </div>
+
+      <div class="card">
+        <h3><span class="badge">2</span>视觉规格（vp）</h3>
+        <div class="kv">
+          <b>画布</b><span>440 × 707（1320 × 2120 @3x），全屏、无状态栏</span>
+          <b>顶栏</b><span>高 56 + 顶部安全区；返回 40 热区，中间「关灯 · 沉浸流」胶囊，右侧弹幕/更多</span>
+          <b>右互动栏</b><span>图标 46，间距 18，距右 10，底边距 104；数字 10.5</span>
+          <b>信息区</b><span>左 16 / 右 78 / 底 36；标题 16/22 两行，UP 13，标签 11.5，数据 10.5</span>
+          <b>进度条</b><span>高 3，触摸热区 18；时间 10 右对齐</span>
+          <b>弹幕</b><span>字号 15（横屏 14）；竖向视频占顶部 8%~46%，右侧内缩 56 避开右栏</span>
+          <b>横屏视频</b><span>16:9 居中偏上（top 88），上下由模糊封面 + 0.72 压暗填充</span>
+          <b>主色</b><span><code>#FB7299</code> · 正文 <code>#FFF</code> · 次文 <code>rgba(255,255,255,.6)</code></span>
+        </div>
+        <p style="margin-top:10px">
+          弹幕区必须避开右栏与信息区：现成 <code>DanmakuConfig</code> 有显示区域配置，
+          feed 模式把它收成「顶部 8%~46% + 右侧内缩 56」，比新增一套弹幕布局便宜得多。
+        </p>
+      </div>
+
+      <div class="card">
+        <h3><span class="badge">3</span>状态机</h3>
+        <p>
+          <code>idle → prefetching → ready → playing ⇄ paused → swapping → playing</code>，
+          任何一步失败 → <code>error</code>（显示封面 + 重试 / 跳过，绝不黑屏）。
+        </p>
+        <ul>
+          <li><b>prefetching</b>：当前条播放中，静默预取下一条的 detail + playurl（+ 首段）。</li>
+          <li><b>ready</b>：封面已解码、playurl 已到手；滑动跟手时露出的就是这张封面。</li>
+          <li><b>swapping</b>：手指抬起 → 位移动画 280ms → 换源。<b>先藏旧画面，再换 vi</b>，避免闪回。</li>
+          <li><b>error</b>：封面 + 「加载失败，点按重试」；连续失败 2 次自动跳到下一条。</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3><span class="badge">4</span>实现落点</h3>
+        <table>
+          <tr><th>文件</th><th>改动</th></tr>
+          <tr>
+            <td><code>VideoPlayerPage.ets</code></td>
+            <td>
+              新增 <code>isFeedMode / feedItems / feedIndex / feedDragY</code>；
+              <code>enterFeed() / exitFeed() / loadFeedItem(i)</code>；
+              <code>ovRect*</code>、<code>ovVideo*</code> 在 feed 模式强制全屏；
+              <code>buildPlayerOverlay</code> 里挂竖向 PanGesture + <code>FeedOverlay</code>。
+            </td>
+          </tr>
+          <tr>
+            <td><code>components/FeedOverlay.ets</code><br><span style="color:#6f7787">（新建）</span></td>
+            <td>顶栏 / 右互动栏 / 信息区 / 进度条 / 暂停与加载态 / 心形爆裂。只吃 props，不碰播放器。</td>
+          </tr>
+          <tr>
+            <td><code>services/FeedService.ets</code><br><span style="color:#6f7787">（新建）</span></td>
+            <td>
+              相关推荐 <code>getRelatedVideos</code> 起量 → 推荐流 <code>getRecommendVideosOptimized</code> 续页；
+              去重、过滤（只留 <code>goto==='av'</code> 且 bvid 有效）、预取队列。
+            </td>
+          </tr>
+          <tr>
+            <td><code>components/DanmakuView.ets</code></td>
+            <td>给 <code>cid</code> 加 <code>@Watch</code>：两条视频时长恰好相同时，duration 不变就不会触发重载。</td>
+          </tr>
+          <tr>
+            <td><code>api/BilibiliApi.ets</code></td>
+            <td>
+              playurl 缓存只有 60s；加一个 feed 预取缓存（5min）或 <code>prefetchPlayUrl()</code>，
+              否则预取太早等于白发。
+            </td>
+          </tr>
+        </table>
+      </div>
+
+      <div class="card">
+        <h3><span class="badge">5</span>必须守住的 6 条</h3>
+        <ul class="risk">
+          <li><b>切条前先落库</b>：<code>saveWatchHistory()</code> + <code>reportWatchBehavior()</code> 必须在改 <code>vi</code> / <code>release()</code> 之前；&lt;5s 一律不上报（否则把已有进度清零）。</li>
+          <li><b>单 Surface</b>：相邻页只渲染封面，绝不挂第二个 XComponent；否则解码器与 Surface 生命周期都会炸。</li>
+          <li><b>弹幕按 cid 重载</b>：现有重载挂在 duration 变化上，时长相同会串台；必须显式监听 cid。</li>
+          <li><b>快速连滑竞态</b>：<code>initPInProgress_</code> 会让第二次初始化直接 return；加 <code>feedGen</code> 世代号，每个 await 后校验。</li>
+          <li><b>覆盖层几何</b>：feed 模式必须把 <code>ovRect*</code> 强制成整窗，否则还是「视频槽」大小，HUD 会被 <code>.clip(true)</code> 裁掉。</li>
+          <li><b>预取别太贪</b>：只预取下一条；playurl 带风控（v_voucher），并发预取多条会抬高命中率。</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3><span class="badge">6</span>分阶段</h3>
+        <table>
+          <tr><th>阶段</th><th>内容</th><th>估时</th></tr>
+          <tr><td>P1</td><td>feed 状态 + 全屏几何 + 竖向手势 + 换源</td><td>1.5 人日</td></tr>
+          <tr><td>P2</td><td>FeedOverlay：顶栏 / 右栏 / 信息区 / 进度条 / 暂停</td><td>1.5 人日</td></tr>
+          <tr><td>P3</td><td>预取、分页、历史落库、错误重试</td><td>1 人日</td></tr>
+          <tr><td>P4</td><td>入口与设置（上滑进入 / 只看短视频 / 自动连播）</td><td>0.5 人日</td></tr>
+        </table>
+        <p style="margin-top:9px">共 4~5 人日，不含真机手感调优与横屏/PGC 边界的回归。</p>
+      </div>
+
+      <div class="footer">
+        原型说明：视频画面用 CSS 场景占位；点赞/投币/收藏/分享为前端演示，不接真实接口。
+        设计目标版本是 <code>VideoPlayerPage.ets</code> 的关灯分支，不改动现有详情页与评论区的布局。
+      </div>
+
+    </aside>
+  </main>
+</div>
+
+<script>
+/* ============================================================
+   数据（示例）
+   ============================================================ */
+const ITEMS = [
+  {
+    kind:'vertical', theme:'city', seed:11, dur:214, pos:37,
+    title:'把城市夜景拍成电影感｜4K HDR 手持扫街',
+    up:'影像志', upInitial:'影', when:'3小时前',
+    play:'128.6万', dm:'1.2万', like:124000, coin:8620, fav:23400, comment:3421,
+    tags:'#摄影 #城市夜景 #4K',
+    dms:['这个转场太丝滑了','求 BGM！','夜景杀手','镜头语言满分','这是哪个城市？','已三连','调色教程求安排','35mm 吗？']
+  },
+  {
+    kind:'horizontal', theme:'tech', seed:23, dur:638, pos:126,
+    title:'华为 Mate 80 Pro 上手：这一次，影像真的不一样了',
+    up:'数码老王', upInitial:'王', when:'今天 12:40',
+    play:'86.2万', dm:'6321', like:38200, coin:2100, fav:7900, comment:1880,
+    tags:'#数码 #华为 #新机上手',
+    dms:['这一代长焦牛','价格公布了吗','手持夜景对比呢','等一个实测','这代续航怎么样']
+  },
+  {
+    kind:'loading', theme:'loading', seed:31, dur:0, pos:0,
+    title:'正在为你挑选下一条…',
+    up:'', upInitial:'', when:'',
+    play:'', dm:'', like:0, coin:0, fav:0, comment:0,
+    tags:'', dms:[]
+  },
+  {
+    kind:'vertical', theme:'neon', seed:41, dur:96, pos:12,
+    title:'无声踩点｜霓虹机械舞 30 秒循环',
+    up:'夜色舞团', upInitial:'夜', when:'昨天',
+    play:'23.9万', dm:'986', like:15600, coin:640, fav:2200, comment:431,
+    tags:'#舞蹈 #踩点 #霓虹',
+    dms:['这个卡点绝了','机械舞天花板','循环了十遍','光线好绝']
+  }
+];
+
+/* ---------------- 工具 ---------------- */
+const screenEl = document.getElementById('screen');
+const trackEl  = document.getElementById('track');
+const toastEl  = document.getElementById('toast');
+const pullHint = document.getElementById('pullHint');
+const swipeHint= document.getElementById('swipeHint');
+const H = 707;
+
+const fmt = n => n >= 10000 ? (n / 10000).toFixed(1).replace(/\.0$/, '') + '万' : String(n);
+const fmtTime = s => {
+  s = Math.max(0, Math.floor(s));
+  return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+};
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+/* ---------------- 图标 ---------------- */
+const ICON = {
+  heart:'<path d="M12 20.4S4.8 16.2 3.2 11.9C1.9 8.4 3.9 5.3 7.2 5.1c2.1-.1 3.6 1 4.8 2.4 1.2-1.4 2.7-2.5 4.8-2.4 3.3.2 5.3 3.3 4 6.8-1.6 4.3-8.8 8.5-8.8 8.5z"/>',
+  coin:'<circle cx="12" cy="12" r="8.6"/><path d="M12 7.4l1.5 3 3.3.5-2.4 2.3.6 3.3-3-1.6-3 1.6.6-3.3L7.2 10.9l3.3-.5z" fill="#0b0b0f"/>',
+  star:'<path d="M12 3.6l2.6 5.3 5.8.8-4.2 4.1 1 5.8-5.2-2.8-5.2 2.8 1-5.8L3.6 9.7l5.8-.8z"/>',
+  chat:'<path d="M4.5 5.5h15v9.6h-8.2L7.6 18v-2.9H4.5z"/><circle cx="9" cy="10.3" r=".85" fill="#0b0b0f"/><circle cx="12" cy="10.3" r=".85" fill="#0b0b0f"/><circle cx="15" cy="10.3" r=".85" fill="#0b0b0f"/>',
+  share:'<path d="M13.8 4.2l6.2 6.2-6.2 6.2v-3.9c-4.4 0-7.3 1.5-9.4 4.6.4-6.2 3.6-10.1 9.4-10.6z"/>',
+  more:'<circle cx="6" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="18" cy="12" r="1.6"/>',
+  back:'<path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>',
+  bullet:'<path d="M4 7h16v8.5H10l-4 3.2v-3.2H4z"/>',
+  bulb:'<path d="M9.3 16.6h5.4M10 19h4M12 3.6a5.4 5.4 0 00-3.1 9.8c.6.5.9 1.1.9 1.8h4.4c0-.7.3-1.3.9-1.8A5.4 5.4 0 0012 3.6z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>',
+  play:'<path d="M8 5.5l11 6.5-11 6.5z"/>'
+};
+const svg = n => '<svg viewBox="0 0 24 24" aria-hidden="true">' + ICON[n] + '</svg>';
+
+/* ---------------- 场景 ---------------- */
+function bokeh(n, seed) {
+  let s = seed || 7;
+  const r = () => { s = (s * 9301 + 49297) % 233280; return s / 233280; };
+  let out = '';
+  for (let k = 0; k < n; k++) {
+    const left = (r() * 100).toFixed(1);
+    const top = (33 + r() * 58).toFixed(1);
+    const size = (2.5 + r() * 9).toFixed(1);
+    const delay = (r() * 6).toFixed(2);
+    out += '<i class="bokeh" style="left:' + left + '%;top:' + top + '%;width:' + size + 'px;height:' + size +
+           'px;animation-delay:-' + delay + 's"></i>';
+  }
+  return '<span class="bokeh-set">' + out + '</span>';
+}
+function sceneInner(it) {
+  if (it.theme === 'city') return bokeh(13, it.seed) + '<i class="horizon"></i><i class="skyline"></i><i class="streak"></i>';
+  if (it.theme === 'tech') return '<i class="prop"></i><i class="glare"></i>';
+  if (it.theme === 'neon') {
+    let bars = '';
+    for (let k = 0; k < 6; k++) {
+      bars += '<i style="height:' + (38 + ((k * 19) % 58)) + '%;animation-delay:-' + (k * .31).toFixed(2) + 's"></i>';
+    }
+    return '<span class="bars">' + bars + '</span>';
+  }
+  return '';
+}
+const sceneOf = it => '<div class="scene scene-' + it.theme + '">' + sceneInner(it) + '</div>';
+
+/* ---------------- 页面 ---------------- */
+function danmakuHTML(it) {
+  if (!it.dms || !it.dms.length) return '';
+  return '<div class="dm-layer">' + it.dms.map((t, k) => {
+    const top = (k * 11 + (k % 2) * 4);
+    const dur = 9 + (k * 1.7) % 7;
+    const delay = -((k * 2.1) % 11);
+    return '<span class="dm" style="top:' + top + '%;animation-duration:' + dur.toFixed(1) +
+           's;animation-delay:' + delay.toFixed(1) + 's">' + t + '</span>';
+  }).join('') + '</div>';
+}
+
+function hudHTML(it, i) {
+  if (it.kind === 'loading') {
+    return '<header class="topbar">' +
+      '<button class="tb-btn" data-act="exit" aria-label="退出">' + svg('back') + '</button>' +
+      '<div class="tb-chip">' + svg('bulb') + '<span>关灯 · 沉浸流</span></div>' +
+      '<div class="spacer"></div>' +
+      '<button class="tb-btn" data-act="more" aria-label="更多">' + svg('more') + '</button>' +
+    '</header>' +
+    '<div class="loading-box"><i class="spinner"></i><b>正在挑选下一条…</b><span>预取 detail + playurl</span></div>' +
+    '<div class="skeleton">' +
+      '<div class="sk w1"></div><div class="sk w2"></div><div class="sk w3"></div>' +
+    '</div>';
+  }
+
+  return '<header class="topbar">' +
+      '<button class="tb-btn" data-act="exit" aria-label="退出沉浸流">' + svg('back') + '</button>' +
+      '<div class="tb-chip">' + svg('bulb') + '<span>关灯 · 沉浸流</span></div>' +
+      '<div class="spacer"></div>' +
+      '<button class="tb-btn" data-act="dm" aria-label="弹幕">' + svg('bullet') + '<i class="dot"></i></button>' +
+      '<button class="tb-btn" data-act="more" aria-label="更多">' + svg('more') + '</button>' +
+    '</header>' +
+    '<div class="shade"></div>' +
+    '<aside class="rail">' +
+      '<button class="avatar" data-act="follow" aria-label="关注">' +
+        '<span class="ava-face">' + (it.upInitial || '?') + '</span><i class="plus">+</i>' +
+      '</button>' +
+      '<button class="rail-item ' + (it.liked ? 'on' : '') + '" data-act="like">' +
+        '<span class="ri-icon">' + svg('heart') + '</span><em class="ri-num">' + fmt(it.like) + '</em></button>' +
+      '<button class="rail-item" data-act="coin">' +
+        '<span class="ri-icon">' + svg('coin') + '</span><em class="ri-num">' + fmt(it.coin) + '</em></button>' +
+      '<button class="rail-item" data-act="fav">' +
+        '<span class="ri-icon">' + svg('star') + '</span><em class="ri-num">' + fmt(it.fav) + '</em></button>' +
+      '<button class="rail-item" data-act="comment">' +
+        '<span class="ri-icon">' + svg('chat') + '</span><em class="ri-num">' + fmt(it.comment) + '</em></button>' +
+      '<button class="rail-item" data-act="share">' +
+        '<span class="ri-icon">' + svg('share') + '</span><em class="ri-num">分享</em></button>' +
+    '</aside>' +
+    '<div class="meta">' +
+      '<div class="up"><span class="up-ava">' + (it.upInitial || '?') + '</span><b>@' + it.up + '</b>' +
+        '<button class="follow" data-act="follow">关注</button></div>' +
+      '<div class="title">' + it.title + '</div>' +
+      '<div class="tags">' + it.tags + '</div>' +
+      '<div class="stat">' + it.play + '播放 · ' + it.dm + '弹幕 · ' + it.when + '</div>' +
+    '</div>' +
+    '<div class="progress" data-i="' + i + '">' +
+      '<div class="bar"></div><div class="fill"></div><i class="knob"></i>' +
+      '<span class="time"></span>' +
+    '</div>';
+}
+
+function pageHTML(it, i) {
+  let media = '';
+  if (it.kind === 'horizontal') {
+    media = '<div class="page-bg">' + sceneOf(it) + '<i class="dim"></i></div>' +
+            '<div class="video-box">' + sceneOf(it) + '</div>';
+  } else if (it.kind === 'loading') {
+    media = '<div class="page-bg">' + sceneOf(it) + '<i class="dim"></i></div>';
+  } else {
+    media = '<div class="video-fill">' + sceneOf(it) + '</div>';
+  }
+
+  return '<section class="page ' + (it.kind === 'horizontal' ? 'is-horizontal' : '') +
+         (it.kind === 'loading' ? ' is-loading' : '') +
+         '" style="--i:' + i + '" data-i="' + i + '">' +
+         media + danmakuHTML(it) + hudHTML(it, i) +
+         '</section>';
+}
+
+trackEl.innerHTML = ITEMS.map(pageHTML).join('');
+
+/* ============================================================
+   状态
+   ============================================================ */
+const state = { index: 0, drag: 0, dragging: false, paused: false, danmaku: true, anno: false };
+let pointer = null;
+let tapTimer = 0;
+let lastTap = 0;
+let transitioning = false;
+
+/* ---------------- 位置 ---------------- */
+function applyTransform(animate) {
+  trackEl.style.transition = animate ? 'transform .3s cubic-bezier(.22,.9,.28,1)' : 'none';
+  const y = -state.index * H + state.drag;
+  trackEl.style.transform = 'translate3d(0,' + y + 'px,0)';
+}
+function setActive() {
+  [...trackEl.children].forEach((p, i) => p.classList.toggle('active', i === state.index));
+  swipeHint.classList.toggle('hide', state.index > 0 || state.dragging);
+}
+function go(i, animate) {
+  i = clamp(i, 0, ITEMS.length - 1);
+  transitioning = true;
+  state.index = i;
+  state.drag = 0;
+  applyTransform(animate !== false);
+  setActive();
+  paintProgress();
+  setTimeout(() => { transitioning = false; }, 320);
+}
+function springBack() {
+  state.drag = 0;
+  applyTransform(true);
+  setActive();
+}
+
+/* ---------------- 进度 ---------------- */
+function paintProgress() {
+  [...trackEl.children].forEach((page, i) => {
+    const it = ITEMS[i];
+    const pct = it.dur > 0 ? clamp(it.pos / it.dur, 0, 1) * 100 : 0;
+    const fill = page.querySelector('.fill');
+    const knob = page.querySelector('.knob');
+    const time = page.querySelector('.time');
+    if (fill) fill.style.width = pct + '%';
+    if (knob) knob.style.left = pct + '%';
+    if (time && it.dur > 0) time.textContent = fmtTime(it.pos) + ' / ' + fmtTime(it.dur);
+  });
+}
+setInterval(() => {
+  const it = ITEMS[state.index];
+  if (!state.paused && it && it.dur > 0) {
+    it.pos += 0.25;
+    if (it.pos >= it.dur) it.pos = 0; // 循环播放
+    paintProgress();
+  }
+}, 250);
+
+/* ---------------- 提示 ---------------- */
+let toastTimer = 0;
+function toast(msg) {
+  toastEl.textContent = msg;
+  toastEl.classList.add('on');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastEl.classList.remove('on'), 1700);
+}
+function syncPaused() {
+  screenEl.classList.toggle('paused', state.paused);
+}
+function syncDanmaku() {
+  screenEl.classList.toggle('hide-dm', !state.danmaku);
+}
+
+/* ---------------- 点赞 ---------------- */
+function burst(x, y) {
+  const el = document.createElement('div');
+  el.className = 'burst';
+  el.style.left = x + 'px';
+  el.style.top = y + 'px';
+  el.innerHTML = svg('heart');
+  screenEl.appendChild(el);
+  setTimeout(() => el.remove(), 950);
+  try { if (navigator.vibrate) navigator.vibrate(12); } catch (e) {}
+}
+function like(i, x, y) {
+  const it = ITEMS[i];
+  if (!it || it.kind === 'loading') return;
+  const page = trackEl.children[i];
+  const btn = page.querySelector('[data-act="like"]');
+  if (!it.liked) {
+    it.liked = true;
+    it.like += 1;
+    btn.classList.add('on');
+    btn.querySelector('.ri-num').textContent = fmt(it.like);
+  }
+  if (x != null) burst(x, y);
+}
+
+/* ============================================================
+   指针 / 手势
+   ============================================================ */
+screenEl.addEventListener('pointerdown', e => {
+  if (e.target.closest('button, .progress, .anno')) return;
+  clearTimeout(tapTimer);
+  pointer = { x: e.clientX, y: e.clientY, t: performance.now(), id: e.pointerId };
+  state.dragging = false;
+  try { screenEl.setPointerCapture(e.pointerId); } catch (err) {}
+});
+
+screenEl.addEventListener('pointermove', e => {
+  if (!pointer || e.pointerId !== pointer.id) return;
+  let dy = e.clientY - pointer.y;
+  const dx = e.clientX - pointer.x;
+  if (!state.dragging && Math.abs(dy) > 5 && Math.abs(dy) > Math.abs(dx)) {
+    state.dragging = true;
+    screenEl.classList.add('dragging');
+    swipeHint.classList.add('hide');
+  }
+  if (!state.dragging) return;
+  e.preventDefault();
+
+  const atTop = state.index === 0 && dy > 0;
+  const atBottom = state.index === ITEMS.length - 1 && dy < 0;
+  if (atTop || atBottom) dy = dy * 0.35;
+
+  state.drag = dy;
+  applyTransform(false);
+
+  // 首条下拉退出提示
+  if (state.index === 0 && dy > H * 0.18) {
+    pullHint.classList.add('on');
+    pullHint.textContent = dy > H * 0.3 ? '松开退出沉浸流' : '继续下拉退出';
+  } else {
+    pullHint.classList.remove('on');
+  }
+}, { passive: false });
+
+function endPointer(e) {
+  if (!pointer || (e && e.pointerId !== pointer.id)) return;
+  const wasDragging = state.dragging;
+  const dt = Math.max(1, performance.now() - pointer.t);
+  const dy = state.drag;
+  const v = dy / dt;
+  pointer = null;
+  state.dragging = false;
+  screenEl.classList.remove('dragging');
+  pullHint.classList.remove('on');
+
+  if (!wasDragging) {
+    // 单击 / 双击
+    const now = performance.now();
+    const cx = e.clientX, cy = e.clientY;
+    if (now - lastTap < 280) {
+      clearTimeout(tapTimer);
+      lastTap = 0;
+      const r = screenEl.getBoundingClientRect();
+      like(state.index, cx - r.left, cy - r.top);
+      return;
+    }
+    lastTap = now;
+    tapTimer = setTimeout(() => {
+      state.paused = !state.paused;
+      syncPaused();
+      syncToolbar();
+    }, 260);
+    return;
+  }
+
+  const atTop = state.index === 0 && dy > 0;
+  if (atTop && dy > H * 0.3) {
+    toast('退出沉浸流 → 回到关灯详情（当前视频）');
+  }
+
+  let dir = 0;
+  if (dy < -(H * 0.16) || v < -0.5) dir = 1;
+  else if (dy > (H * 0.16) || v > 0.5) dir = -1;
+
+  const target = state.index + dir;
+  if (dir !== 0 && target >= 0 && target < ITEMS.length) {
+    go(target, true);
+    if (state.index > 0) swipeHint.classList.add('hide');
+  } else {
+    springBack();
+  }
+}
+screenEl.addEventListener('pointerup', endPointer);
+screenEl.addEventListener('pointercancel', endPointer);
+
+/* ---------------- 进度条拖动 ---------------- */
+trackEl.addEventListener('pointerdown', e => {
+  const prog = e.target.closest('.progress');
+  if (!prog) return;
+  const i = Number(prog.dataset.i);
+  const it = ITEMS[i];
+  if (!it.dur) return;
+  const seek = ev => {
+    const r = prog.getBoundingClientRect();
+    it.pos = clamp((ev.clientX - r.left) / r.width, 0, 1) * it.dur;
+    paintProgress();
+  };
+  seek(e);
+  const move = ev => seek(ev);
+  const up = () => {
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', up);
+  };
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', up);
+});
+
+/* ---------------- 页面内点击 ---------------- */
+trackEl.addEventListener('click', e => {
+  const btn = e.target.closest('[data-act]');
+  if (!btn) return;
+  e.stopPropagation();
+  const page = btn.closest('.page');
+  const i = page ? Number(page.dataset.i) : state.index;
+  const act = btn.dataset.act;
+
+  if (act === 'exit') {
+    toast('退出沉浸流 → 回到关灯详情（当前视频）');
+  } else if (act === 'dm') {
+    state.danmaku = !state.danmaku;
+    syncDanmaku();
+    syncToolbar();
+    toast(state.danmaku ? '弹幕：开' : '弹幕：关');
+  } else if (act === 'more') {
+    toast('更多：清晰度 / 不感兴趣 / 举报（示意）');
+  } else if (act === 'follow') {
+    const pageEl = btn.closest('.page');
+    pageEl.querySelectorAll('[data-act="follow"]').forEach(n => n.classList.add('followed'));
+    pageEl.querySelector('.follow').textContent = '已关注';
+    toast('已关注 ' + ITEMS[i].up);
+  } else if (act === 'like') {
+    const r = btn.getBoundingClientRect();
+    like(i, r.left + r.width / 2 - screenEl.getBoundingClientRect().left, r.top + 20 - screenEl.getBoundingClientRect().top);
+  } else if (act === 'coin') {
+    toast('已投币（示意）');
+  } else if (act === 'fav') {
+    toast('已收藏（示意）');
+  } else if (act === 'comment') {
+    toast('评论：P1 方案是退出沉浸流并打开该视频详情评论区');
+  } else if (act === 'share') {
+    toast('链接已复制（示意）');
+  }
+});
+
+/* ---------------- 工具条 ---------------- */
+document.querySelector('.toolbar').addEventListener('click', e => {
+  const b = e.target.closest('[data-tb]');
+  if (!b) return;
+  const act = b.dataset.tb;
+  if (act === 'prev') go(state.index - 1, true);
+  else if (act === 'next') go(state.index + 1, true);
+  else if (act === 'play') { state.paused = !state.paused; syncPaused(); syncToolbar(); }
+  else if (act === 'dm') { state.danmaku = !state.danmaku; syncDanmaku(); syncToolbar(); }
+  else if (act === 'anno') { state.anno = !state.anno; screenEl.classList.toggle('anno-on', state.anno); syncToolbar(); }
+  else if (act === 'jump-h') go(1, true);
+  else if (act === 'jump-load') go(2, true);
+  else if (act === 'reset') {
+    state.paused = false; state.danmaku = true; state.anno = false;
+    screenEl.classList.remove('anno-on');
+    syncPaused(); syncDanmaku(); syncToolbar();
+    go(0, false);
+  }
+});
+
+function syncToolbar() {
+  const tb = document.querySelector('.toolbar');
+  tb.querySelector('[data-tb="play"]').textContent = state.paused ? '播放' : '暂停';
+  tb.querySelector('[data-tb="dm"]').textContent = '弹幕：' + (state.danmaku ? '开' : '关');
+  tb.querySelector('[data-tb="anno"]').classList.toggle('primary', state.anno);
+  document.body.classList.toggle('anno-on', state.anno);
+}
+
+/* ---------------- 键盘 ---------------- */
+window.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  if (e.key === 'ArrowUp') { e.preventDefault(); go(state.index + 1, true); }
+  else if (e.key === 'ArrowDown') { e.preventDefault(); go(state.index - 1, true); }
+  else if (e.key === ' ') { e.preventDefault(); state.paused = !state.paused; syncPaused(); syncToolbar(); }
+  else if (e.key === 'd' || e.key === 'D') { state.danmaku = !state.danmaku; syncDanmaku(); syncToolbar(); }
+  else if (e.key === 'a' || e.key === 'A') { state.anno = !state.anno; screenEl.classList.toggle('anno-on', state.anno); syncToolbar(); }
+});
+
+/* ---------------- 标注层 ---------------- */
+const ANNOS = [
+  { n: 1, x: 82, y: 4.4 },
+  { n: 2, x: 18, y: 32 },
+  { n: 3, x: 30, y: 15 },
+  { n: 4, x: 92, y: 55 },
+  { n: 5, x: 30, y: 84 },
+  { n: 6, x: 62, y: 99 },
+  { n: 7, x: 20, y: 97 }
+];
+document.getElementById('annoDots').innerHTML = ANNOS.map(a =>
+  '<span class="anno" style="left:' + a.x + '%;top:' + a.y + '%"><b>' + a.n + '</b></span>'
+).join('');
+
+document.getElementById('annoFrames').innerHTML =
+  '<i class="frame" data-label="顶栏 56" style="left:0;top:0;right:0;height:56px"></i>' +
+  '<i class="frame" data-label="视频区 fit / 12 安全边距" style="left:0;top:56px;right:0;height:400px;border-style:solid;border-color:rgba(251,114,153,.22)"></i>' +
+  '<i class="frame" data-label="右栏 46" data-side="right" style="right:8px;top:340px;width:54px;height:330px"></i>' +
+  '<i class="frame" data-label="信息区" style="left:12px;right:72px;bottom:34px;height:132px"></i>' +
+  '<i class="frame" data-label="进度条 3" style="left:0;right:0;bottom:0;height:18px"></i>';
+
+/* ---------------- 初始化 ---------------- */
+document.getElementById('pauseIcon').innerHTML = svg('play');
+applyTransform(false);
+setActive();
+paintProgress();
+syncToolbar();
+</script>
+</body>
+</html>
