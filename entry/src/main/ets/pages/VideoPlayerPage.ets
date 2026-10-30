@@ -94,6 +94,14 @@ interface ShortVideoFeedItem {
   playCount: number;
   danmakuCount: number;
   pubdate: number;
+  /** 画幅（宽/高），预加载详情时拿到，用于切条前就确定卡片比例 */
+  aspect?: number;
+}
+
+/** 预加载好的转播站句柄（初始化时直接接管，跳过取流/探测/起服务） */
+interface ShortPreloadHandle {
+  bridge: DashPlayerBridge;
+  url: string;
 }
 
 interface VC { bvid: string; cid: number; title: string; cover: string; ownerName?: string; ownerFace?: string; duration?: number; pubdate?: number; view?: number; subTitle?: string; score?: string; indexShow?: string; badge?: string }
@@ -424,18 +432,41 @@ struct VideoPlayerPage {
   private isShortVideo(): boolean {
     return this.isLightsOff && !this.isPgc_ && !this.fs && !this.isLs && !this.isLandscapeVertical;
   }
-  /** 视频卡尺寸：左右 12、上下 88（= (707-176)/2），与设计稿 416×531 对齐 */
+  /** 某条目的画幅：预加载详情/playurl 已知则直接用，否则回退到当前视频实际画幅 */
+  private shortItemAspect(it: ShortVideoFeedItem | undefined): number {
+    if (it && it.aspect !== undefined && it.aspect > 0) return it.aspect;
+    return Number.isFinite(this.ar) && this.ar > 0 ? this.ar : 16 / 9;
+  }
+  /** 按画幅算卡高：宽度铺满，竖屏最多整屏高（超出裁掉）；上下各留 10vp，避免相邻卡紧贴 */
+  private shortAspectH(a: number): number {
+    const slotH: number = Math.min(this.ch, this.cw / a);
+    return Math.max(1, slotH - 20);
+  }
+  private shortVideoAspect(): number {
+    return this.shortItemAspect(this.shortItem());
+  }
   private shortCardW(): number {
-    return Math.max(1, this.cw - 24);
+    // 视频区左右铺满手机宽度（横竖屏一致）
+    return Math.max(1, this.cw);
   }
   private shortCardH(): number {
-    return Math.max(1, this.ch - 176);
+    return this.shortAspectH(this.shortVideoAspect());
   }
   private shortCardX(): number {
     return Math.max(0, (this.cw - this.shortCardW()) / 2);
   }
   private shortCardY(): number {
     return Math.max(0, (this.ch - this.shortCardH()) / 2);
+  }
+  /** 视频层（XComponent）几何：过渡期用目标画幅，落地时与当前条画幅重合 → 不闪变 */
+  private shortPlateAspect(): number {
+    return this.shortSlideAspect > 0 ? this.shortSlideAspect : this.shortVideoAspect();
+  }
+  private shortPlateH(): number {
+    return this.shortAspectH(this.shortPlateAspect());
+  }
+  private shortPlateY(): number {
+    return Math.max(0, (this.ch - this.shortPlateH()) / 2);
   }
 
   /** ⭐ 关灯模式：视频 fit 放大填满屏幕（保留最小边距），XComponent 实际改尺寸重绘放大 */
@@ -472,8 +503,8 @@ struct VideoPlayerPage {
 
   /** ⭐ 常驻播放器层矩形：非全屏跟踪占位槽；全屏为整屏；进出全屏期间在两者间连续插值 */
   private ovRectX(): number {
-    // 短视频：常驻层固定在视频卡矩形。拖动时整层淡出、由卡片 UI 的封面承接滑动
-    // （XComponent 是原生 SURFACE，移动/裁剪它会出现整块黑屏）
+    // 短视频：常驻层固定在视频卡矩形；滑动位移由外层 .translate(shortDragY) 叠加
+    // （只平移、不改 surface 尺寸/裁剪面，避免黑屏）
     if (this.isShortVideo()) return this.shortCardX();
     if (this.fsEntering) return this.fsLerpSnapX;
     if (!this.fs) return this.ovX;
@@ -482,7 +513,7 @@ struct VideoPlayerPage {
     return 0;
   }
   private ovRectY(): number {
-    if (this.isShortVideo()) return this.shortCardY();
+    if (this.isShortVideo()) return this.shortPlateY();
     if (this.fsEntering) return this.fsLerpSnapY;
     if (!this.fs) return this.ovY;
     if (this.fsLerpDir === 1) return this.fsLerpSnapY * (1 - this.fsLerpT());
@@ -490,7 +521,7 @@ struct VideoPlayerPage {
     return 0;
   }
   private ovRectW(): number {
-    if (this.isShortVideo()) return this.shortCardW();
+    if (this.isShortVideo()) return this.cw;
     if (this.fsEntering) return Math.max(1, this.fsLerpSnapW);
     if (!this.fs) return Math.max(1, this.ovW);
     if (this.fsLerpDir === 1) return Math.max(1, this.fsLerpSnapW + (this.cw - this.fsLerpSnapW) * this.fsLerpT());
@@ -498,7 +529,7 @@ struct VideoPlayerPage {
     return Math.max(1, this.cw);
   }
   private ovRectH(): number {
-    if (this.isShortVideo()) return this.shortCardH();
+    if (this.isShortVideo()) return this.shortPlateH();
     if (this.fsEntering) return Math.max(1, this.fsLerpSnapH);
     if (!this.fs) return Math.max(1, this.ovH);
     if (this.fsLerpDir === 1) return Math.max(1, this.fsLerpSnapH + (this.ch - this.fsLerpSnapH) * this.fsLerpT());
@@ -508,7 +539,7 @@ struct VideoPlayerPage {
   /** ⭐ 常驻层内视频实际尺寸（复刻各分支原 XComponent 尺寸表达式；⚠ 不可经 get xcW/xcH 取——getter 在普通方法中返回 undefined）
      进出全屏期间连续插值，NaN/非正值兜底防 surface 被杀 */
   private ovVideoW(): number {
-    if (this.isShortVideo()) return this.shortCardW();
+    if (this.isShortVideo()) return this.cw;
     let t: number;
     if (this.fs) {
       // ⭐ 退出动画（dir=2）终点=非全屏目标尺寸（横屏=lsvw，竖屏=updatePortraitSize 已重算）：
@@ -531,7 +562,7 @@ struct VideoPlayerPage {
     return Math.max(1, t + (this.fsLerpSnapVW - t) * this.fsPanProgress);
   }
   private ovVideoH(): number {
-    if (this.isShortVideo()) return this.shortCardH();
+    if (this.isShortVideo()) return this.shortPlateH();
     let t: number;
     if (this.fs) {
       // ⭐ 退出动画（dir=2）终点=非全屏目标尺寸（横屏=lsvh，竖屏=updatePortraitSize 已重算）
@@ -615,14 +646,14 @@ struct VideoPlayerPage {
    *   ⇒ 正确的口径就是"播放器区域"：全屏时黑边属于播放器，弹幕应当铺满；非全屏时不得越出视频槽。
    */
   private ovDanmakuCW(): number {
-    if (this.isShortVideo()) return this.shortCardW();
+    if (this.isShortVideo()) return this.cw;
     if (this.fs) return Math.max(1, this.cw);
     if (this.isLs || this.isLandscapeVertical) return Math.max(1, this.lsvw);
     if (this.isLightsOff && !this.isLandscapeVertical) return Math.max(1, this.loVideoWidth());
     return Math.max(1, this.videoDisplayWidth);
   }
   private ovDanmakuCH(): number {
-    if (this.isShortVideo()) return this.shortCardH();
+    if (this.isShortVideo()) return this.shortPlateH();
     if (this.fs) return Math.max(1, this.ch);
     if (this.isLs || this.isLandscapeVertical) return Math.max(1, this.lsvh);
     if (this.isLightsOff && !this.isLandscapeVertical) return Math.max(1, this.loVideoHeight());
@@ -879,7 +910,39 @@ struct VideoPlayerPage {
   @State shortSettling: boolean = false
   @State shortSwitching: boolean = false
   @State shortCover: string = ''
+  @State shortCoverFade: number = 1
+  private shortCoverFadeGen: number = 0
+  // ⭐ 滑动过渡：出卡用旧封面快照（切换源时视频层立刻让位），并按目标画幅提前定卡位
+  @State shortSlideCover: string = ''
+  @State shortSlideCoverOpacity: number = 1
+  @State shortSlideAspect: number = 0
+  private shortSlideGen: number = 0
+  // ⭐ 关灯短视频背景交叉淡入：切换时新封面压着旧封面淡入，避免背景硬跳
+  @State shortBgPrev: string = ''
+  @State shortBgCur: string = ''
+  @State shortBgFade: number = 1
+  /** 隐藏卡片文字（标题/简介/标签/时间/播放/弹幕），底部左侧圆形玻璃按钮切换 */
+  @State shortTextHidden: boolean = false
   private shortGen: number = 0
+  // ⭐ 下一条整链路预加载：提前取流 + 起转播站 + 预取首段（切换时直接接管，起播几乎无等待）
+  private shortPreloadBridge_: DashPlayerBridge | null = null
+  private shortPreloadUrl_: string = ''
+  private shortPreloadBvid_: string = ''
+  private shortPreloadCid_: number = 0
+  private shortPreloadQn_: number = 0
+  private shortPreloadPromise_: Promise<string | null> | null = null
+  private shortPreloadGen_: number = 0
+  // ⭐ 下一条「首帧预览」播放器：第二个 SURFACE，prepare 后停在首帧，
+  //    滑入时把那层封面换成真实画面（不再先闪海报）
+  private xcPreview: XComponentController = new XComponentController()
+  private avPreview: media.AVPlayer | null = null
+  private previewGen_: number = 0
+  private previewSurfaceId_: string = ''
+  private previewPendingUrl_: string = ''
+  private previewPendingBvid_: string = ''
+  private previewPendingCid_: number = 0
+  private previewPlaying_: boolean = false
+  @State shortPreviewReady: boolean = false
   private shortFetching: boolean = false
   private shortCommentsAid: number = 0
   private shortTouchX: number = 0
@@ -3563,6 +3626,7 @@ struct VideoPlayerPage {
     this.reportWatchBehavior();  // ⭐ 上报观看行为
     this.clrT();
     this.clearLightBtnTimer(); // ⭐ 清除开灯按钮自动隐藏定时器
+    this.stopShortPreload();   // ⭐ 释放下一条预加载转播站
     this.release();
     this.restoreS();
     if (this.mw) this.mw.setWindowBrightness(this.originalBrightness_);
@@ -3917,6 +3981,7 @@ struct VideoPlayerPage {
     //   且与开灯动画同帧启动（不要在触摸被取消那一刻提前收，见 onTC）
     this.clearGestureHint_();
     this.clearLightBtnTimer();
+    this.stopShortPreload();
     animateTo({ duration: 300, curve: Curve.Ease }, () => {
       this.isLightsOff = false;
       this.loBgScale = 1;
@@ -4151,13 +4216,28 @@ struct VideoPlayerPage {
   private enterShortVideoMode(): void {
     if (this.isPgc_ || !this.vi.bvid) return;
     this.buildShortFeed();
+    const curIt: ShortVideoFeedItem | undefined = this.shortItem();
+    if (curIt && this.vd) {
+      const a: number = this.aspectOfDetail(this.vd);
+      if (a > 0) curIt.aspect = a;
+    }
     this.shortDragY = 0;
     this.shortSettling = false;
     this.shortSwitching = false;
     this.shortCover = '';
-    // 进入短视卡片：完整显示，不按用户的填充模式裁剪
+    this.shortCoverFadeGen++;
+    this.shortCoverFade = 1;
+    this.shortSlideGen++;
+    this.shortSlideCover = '';
+    this.shortSlideCoverOpacity = 1;
+    this.shortSlideAspect = 0;
+    this.shortBgPrev = this.vi.cover;
+    this.shortBgCur = this.vi.cover;
+    this.shortBgFade = 1;
+    this.shortTextHidden = false;
+    // 进入短视频卡片：铺满卡片（竖屏视频按宽铺满，超出的上下部分裁掉，不留黑边）
     try {
-      if (this.av) this.av.videoScaleType = media.VideoScaleType.VIDEO_SCALE_TYPE_SCALED_ASPECT;
+      if (this.av) this.av.videoScaleType = media.VideoScaleType.VIDEO_SCALE_TYPE_FIT_CROP;
     } catch (e) {
       logWarn(`[ShortVideo] 设置 scaleType 失败: ${errMsg(e)}`);
     }
@@ -4229,6 +4309,13 @@ struct VideoPlayerPage {
     if (it.danmakuCount > 0) parts.push(`${this.fmtN(it.danmakuCount)}弹幕`);
     return parts.join(' · ');
   }
+  /** 上/下一条按**自己的**画幅定卡高与位置（预加载已拿到比例，滑动过程就不会变尺寸） */
+  private shortNeighborH(dir: number): number {
+    return this.shortAspectH(this.shortItemAspect(this.shortNeighborItem(dir)));
+  }
+  private shortNeighborY(dir: number): number {
+    return Math.max(0, (this.ch - this.shortNeighborH(dir)) / 2);
+  }
 
   /** 粗略文本宽（vp）：数字 6 / 小数点 3 / 中文 11；用于胶囊自适应宽度 */
   private shortTextW(s: string): number {
@@ -4255,7 +4342,23 @@ struct VideoPlayerPage {
   }
   /** 关注圆钮左边距：UP 胶囊容器（x=4, 宽 upW+16）之后再空 8 */
   private shortFollowX(): number {
-    return 4 + this.shortUpW() + 16;
+    return 4 + this.shortUpW() + 6;
+  }
+  /** 顶部胶囊 y：留出状态栏/挖孔安全距离（关灯后状态栏隐藏，保持 34vp 视觉留白） */
+  private shortTopY(): number {
+    const sb: number = Number(AppStorage.get<number>('statusBarHeight'));
+    return Math.max(34, (Number.isFinite(sb) ? sb : 0) + 10);
+  }
+  /** 底部胶囊 y：避开系统手势横条（只留 8~20vp，别把底栏顶太高） */
+  private shortBottomY(): number {
+    const inset: number = Math.min(20, Math.max(8, this.gripSafeAreaBottom));
+    return Math.max(0, this.ch - 76 - inset);
+  }
+  /** 卡片信息底部留白：卡片贴近屏幕底部时，把信息抬到底栏上方 */
+  private shortInfoPadBottom(): number {
+    const cardBottom: number = this.shortCardY() + this.shortCardH();
+    const barTop: number = this.shortBottomY();
+    return cardBottom > barTop - 4 ? 16 + (cardBottom - barTop + 12) : 16;
   }
   private shortStatItemW(kind: string): number {
     const count: number = kind === 'like' ? this.likeCount : (kind === 'coin' ? this.coinCount : this.favoriteCount);
@@ -4265,9 +4368,9 @@ struct VideoPlayerPage {
   private shortStatsW(): number {
     return 8 + this.shortStatItemW('like') + this.shortStatItemW('coin') + this.shortStatItemW('fav');
   }
-  /** 底部胶囊自适应宽：40+140+40+40+40 + 4×6 间距 + 左右 8 */
+  /** 底部胶囊自适应宽：40+40+112+40+40 + 4×6 间距 + 左右 8 */
   private shortBottomW(): number {
-    return 340;
+    return 312;
   }
   private shortBottomX(): number {
     return Math.max(0, (this.cw - this.shortBottomW()) / 2);
@@ -4284,10 +4387,20 @@ struct VideoPlayerPage {
     }
   }
 
-  /** 预取下一条：详情 + playurl（playurl 缓存 60s，切过去通常还在有效期内） */
+  /**
+   * 预取下一条（官方短视频常见做法：只预加载 1 条完整链路，再往后只预取元数据）：
+   *   +1：详情 + playurl + 转播站 + 首段（切换时直接接管，起播几乎无等待）
+   *   +2：详情 + playurl（提前拿到画幅/标题，不额外占转播站与解码资源）
+   */
   private prefetchShortNext(): void {
-    const idx: number = this.shortIndex + 1;
-    if (idx >= this.shortItems.length) return;
+    this.prefetchShortMeta(this.shortIndex + 1, true);
+    this.prefetchShortMeta(this.shortIndex + 2, false);
+    // 回滑方向也预取详情：提前知道上一条的画幅，反向滑动同样不变尺寸
+    this.prefetchShortMeta(this.shortIndex - 1, false);
+  }
+
+  private prefetchShortMeta(idx: number, preload: boolean): void {
+    if (idx < 0 || idx >= this.shortItems.length) return;
     const next: ShortVideoFeedItem = this.shortItems[idx];
     if (!next.bvid) return;
     getVideoDetail(next.bvid).then((d: VideoDetail | null): void => {
@@ -4304,15 +4417,277 @@ struct VideoPlayerPage {
       cur.playCount = d.stat.view;
       cur.danmakuCount = d.stat.danmaku;
       cur.pubdate = d.pubdate;
+      const da: number = this.aspectOfDetail(d);
+      if (da > 0) cur.aspect = da;
       this.shortItems = this.shortItems.slice();
-      if (cur.cid > 0) {
-        getVideoPlayUrl(cur.bvid, cur.cid, this.qn).catch((e: Error): void => {
-          logWarn(`[ShortVideo] 预取 playurl 失败: ${e.message}`);
-        });
+      // +1 才取 playurl 并起预加载；+2 只拿详情（够确认画幅/标题，少发一次高风险请求）
+      if (preload && cur.cid > 0) {
+        const qnPre: number = this.pickFastStartQn();
+        getVideoPlayUrl(cur.bvid, cur.cid, qnPre)
+          .then((r: PlayUrlResult): void => {
+            const pa: number = this.aspectOfPlayUrl(r);
+            if (pa > 0 && cur.aspect !== pa) {
+              cur.aspect = pa;
+              this.shortItems = this.shortItems.slice();
+            }
+            logInfo(`[ShortVideo] 预取 +${idx - this.shortIndex}: ${cur.bvid} 画幅=${(cur.aspect ?? 0).toFixed(3)}`);
+            // preload 由调用方决定（+1 传 true）；不要再拿 this.shortIndex 比较 ——
+            // deferVisual 过渡期间 shortIndex 还没切到目标，比较会漏掉预加载。
+            if (preload) {
+              this.preloadShortPlayback(cur, r);
+            }
+          })
+          .catch((e: Error): void => {
+            logWarn(`[ShortVideo] 预取 playurl 失败: ${e.message}`);
+          });
       }
     }).catch((e: Error): void => {
       logWarn(`[ShortVideo] 预取详情失败: ${e.message}`);
     });
+  }
+
+  /** 详情里的画幅（处理 rotate） */
+  private aspectOfDetail(d: VideoDetail): number {
+    const dim = d.dimension;
+    if (!dim || dim.width <= 0 || dim.height <= 0) return 0;
+    const rot: number = dim.rotate ?? 0;
+    const swap: boolean = rot === 90 || rot === 270;
+    const w: number = swap ? dim.height : dim.width;
+    const h: number = swap ? dim.width : dim.height;
+    return h > 0 ? w / h : 0;
+  }
+
+  /** playurl 里的实际画幅（按实际返回画质挑一条轨） */
+  private aspectOfPlayUrl(r: PlayUrlResult): number {
+    const dash = r.dash;
+    if (!dash || !dash.videoStreams || dash.videoStreams.length === 0) return 0;
+    const vs = dash.videoStreams;
+    let chosen = vs[0];
+    let best: number = Number.MAX_VALUE;
+    for (let i = 0; i < vs.length; i++) {
+      const v = vs[i];
+      if (v.codecid === 13) continue;
+      const score: number = r.actualQn > 0 ? Math.abs(v.id - r.actualQn) : -v.id;
+      if (score < best) {
+        best = score;
+        chosen = v;
+      }
+    }
+    const w: number = chosen.width ?? 0;
+    const h: number = chosen.height ?? 0;
+    return w > 0 && h > 0 ? w / h : 0;
+  }
+
+  /** 启动下一条的整条链路预加载（复用已取到的 playurl，不重复请求） */
+  private preloadShortPlayback(item: ShortVideoFeedItem, r: PlayUrlResult): void {
+    const dash = r.dash;
+    if (!r.audioUrl || !dash) return;
+    if (this.shortPreloadBvid_ === item.bvid && this.shortPreloadUrl_.length > 0) return;
+    this.stopShortPreload();
+    const gen: number = this.shortPreloadGen_;
+    const bvid: string = item.bvid;
+    const cid: number = item.cid;
+    const qn: number = r.actualQn || 0;
+    const p: Promise<string | null> = (async (): Promise<string | null> => {
+      const bridge = new DashPlayerBridge();
+      try {
+        const url: string | null = await bridge.buildAndStart(
+          dash, 'https://www.bilibili.com/',
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          AppStorage.get<string>('biliCookie') || '', 0);
+        if (gen !== this.shortPreloadGen_) {
+          await bridge.stopIfRunning();
+          return null;
+        }
+        if (!url) {
+          await bridge.stopIfRunning();
+          logWarn(`[ShortVideo] 下一条预加载失败: ${bvid}`);
+          return null;
+        }
+        this.shortPreloadBridge_ = bridge;
+        this.shortPreloadUrl_ = url;
+        this.shortPreloadBvid_ = bvid;
+        this.shortPreloadCid_ = cid;
+        this.shortPreloadQn_ = qn;
+        logInfo(`[ShortVideo] 下一条预加载完成: ${bvid} cid=${cid} qn=${qn} ${url}`);
+        this.prepareShortPreview(bvid, cid, url);
+        return url;
+      } catch (e) {
+        await bridge.stopIfRunning();
+        logWarn(`[ShortVideo] 下一条预加载异常: ${errMsg(e)}`);
+        return null;
+      }
+    })();
+    this.shortPreloadPromise_ = p;
+  }
+
+  /** 停止/取消下一条预加载（只停多余的那条，不影响当前播放器） */
+  private stopShortPreload(): void {
+    this.shortPreloadGen_++;
+    this.releaseShortPreview();
+    const b = this.shortPreloadBridge_;
+    this.shortPreloadBridge_ = null;
+    this.shortPreloadUrl_ = '';
+    this.shortPreloadBvid_ = '';
+    this.shortPreloadCid_ = 0;
+    this.shortPreloadQn_ = 0;
+    this.shortPreloadPromise_ = null;
+    if (b) {
+      b.stopIfRunning().catch((e: Error): void => {
+        logWarn(`[ShortVideo] 停止预加载失败: ${e.message}`);
+      });
+    }
+  }
+
+  /** 初始化时接管已就绪的预加载转播站（不停止它，交给当前播放器） */
+  private takeShortPreload(bvid: string, cid: number, qn: number): ShortPreloadHandle | null {
+    if (!bvid || this.shortPreloadBvid_ !== bvid || this.shortPreloadCid_ !== cid) return null;
+    if (this.shortPreloadQn_ > 0 && qn > 0 && this.shortPreloadQn_ !== qn) return null;
+    const b = this.shortPreloadBridge_;
+    const u: string = this.shortPreloadUrl_;
+    if (!b || u.length === 0) return null;
+    this.shortPreloadBridge_ = null;
+    this.shortPreloadUrl_ = '';
+    this.shortPreloadBvid_ = '';
+    this.shortPreloadCid_ = 0;
+    this.shortPreloadQn_ = 0;
+    this.shortPreloadPromise_ = null;
+    logInfo(`[ShortVideo] 接管预加载转播站: ${bvid} qn=${qn}`);
+    return { bridge: b, url: u };
+  }
+
+  onXCPreview = (): void => {
+    try {
+      this.previewSurfaceId_ = this.xcPreview.getXComponentSurfaceId();
+      logInfo(`[ShortVideo] 预览 surface 就绪: ${this.previewSurfaceId_.length > 0}`);
+      if (this.previewSurfaceId_.length > 0 && this.previewPendingUrl_.length > 0) {
+        const u: string = this.previewPendingUrl_;
+        const b: string = this.previewPendingBvid_;
+        const c: number = this.previewPendingCid_;
+        this.previewPendingUrl_ = '';
+        this.previewPendingBvid_ = '';
+        this.previewPendingCid_ = 0;
+        this.prepareShortPreview(b, c, u);
+      }
+    } catch (e) {
+      logWarn(`[ShortVideo] 预览 surface 获取失败: ${errMsg(e)}`);
+    }
+  }
+
+  private releaseShortPreview(): void {
+    this.previewGen_++;
+    this.previewPlaying_ = false;
+    const p = this.avPreview;
+    this.avPreview = null;
+    this.shortPreviewReady = false;
+    this.previewPendingUrl_ = '';
+    this.previewPendingBvid_ = '';
+    this.previewPendingCid_ = 0;
+    if (p) {
+      try {
+        p.release();
+      } catch (e) {
+        logWarn(`[ShortVideo] 释放预览播放器失败: ${errMsg(e)}`);
+      }
+    }
+  }
+
+  /** 上滑开始：让第二路预览真正播放（静音），拖动时不是一张静止封面 */
+  private startShortPreviewPlayback(): void {
+    if (this.previewPlaying_ || !this.shortPreviewReady) return;
+    const p = this.avPreview;
+    if (!p) return;
+    this.previewPlaying_ = true;
+    p.play().catch((e: Error): void => {
+      logWarn(`[ShortVideo] 预览播放失败: ${e.message}`);
+      this.previewPlaying_ = false;
+    });
+  }
+
+  /** 回弹/取消：暂停并回到 0，下次拖动仍从首帧开始 */
+  private pauseShortPreview(): void {
+    this.previewPlaying_ = false;
+    const p = this.avPreview;
+    if (!p) return;
+    try {
+      p.pause();
+      p.seek(0);
+    } catch (e) {
+      logWarn(`[ShortVideo] 预览复位失败: ${errMsg(e)}`);
+    }
+  }
+
+  /**
+   * 下一条首帧预览：第二个 SURFACE + 第二个 AVPlayer，prepare 后停在首帧。
+   * 滑入时邻居卡不再显示海报，而是真实画面；落地后主播放器从 0 起播，画面连续。
+   */
+  private async prepareShortPreview(bvid: string, cid: number, url: string): Promise<void> {
+    if (!bvid || url.length === 0) return;
+    this.releaseShortPreview();
+    const gen: number = this.previewGen_;
+    for (let i = 0; i < 60 && this.previewSurfaceId_.length === 0; i++) {
+      await new Promise<void>((resolve: () => void): void => {
+        setTimeout(resolve, 20);
+      });
+      if (gen !== this.previewGen_) return;
+    }
+    if (this.previewSurfaceId_.length === 0) {
+      logWarn('[ShortVideo] 预览 surface 暂不可用，等 onLoad 后重试');
+      this.previewPendingUrl_ = url;
+      this.previewPendingBvid_ = bvid;
+      this.previewPendingCid_ = cid;
+      return;
+    }
+    try {
+      const player: media.AVPlayer = await media.createAVPlayer();
+      if (gen !== this.previewGen_) {
+        try { await player.release(); } catch (e) { }
+        return;
+      }
+      this.avPreview = player;
+      player.on('stateChange', (st: string): void => {
+        if (gen !== this.previewGen_) return;
+        if (st === 'initialized') {
+          try {
+            player.surfaceId = this.previewSurfaceId_;
+            // 与主播放器一致：铺满卡片，否则竖屏预览会出现左右黑边
+            player.videoScaleType = media.VideoScaleType.VIDEO_SCALE_TYPE_FIT_CROP;
+          } catch (e) {
+            logWarn(`[ShortVideo] 预览绑定 surface 失败: ${errMsg(e)}`);
+          }
+          player.prepare().catch((e: Error): void => {
+            logWarn(`[ShortVideo] 预览 prepare 失败: ${e.message}`);
+          });
+        } else if (st === 'prepared') {
+          try {
+            player.videoScaleType = media.VideoScaleType.VIDEO_SCALE_TYPE_FIT_CROP;
+            player.setVolume(0);
+          } catch (e) { }
+          this.shortPreviewReady = true;
+          logInfo(`[ShortVideo] 预览首帧就绪: ${bvid} cid=${cid}`);
+          // 播放一小段再暂停，确保首帧真的画到 SURFACE 上
+          player.play().then((): void => {
+            setTimeout((): void => {
+              if (gen !== this.previewGen_ || this.previewPlaying_) return;
+              try { player.pause(); } catch (e) { }
+            }, 180);
+          }).catch((e: Error): void => {
+            logWarn(`[ShortVideo] 预览起播失败: ${e.message}`);
+          });
+        } else if (st === 'error') {
+          logWarn(`[ShortVideo] 预览播放器错误 bvid=${bvid} cid=${cid}`);
+          this.releaseShortPreview();
+        }
+      });
+      const src = media.createMediaSourceWithUrl(url, {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Referer': 'https://www.bilibili.com/'
+      });
+      await player.setMediaSource(src);
+    } catch (e) {
+      logWarn(`[ShortVideo] 创建预览播放器失败: ${errMsg(e)}`);
+      this.releaseShortPreview();
+    }
   }
 
   private updateShortItem(target: number, d: VideoDetail): void {
@@ -4328,6 +4703,8 @@ struct VideoPlayerPage {
     it.playCount = d.stat.view;
     it.danmakuCount = d.stat.danmaku;
     it.pubdate = d.pubdate;
+    const a: number = this.aspectOfDetail(d);
+    if (a > 0) it.aspect = a;
     this.shortItems = this.shortItems.slice();
   }
 
@@ -4367,19 +4744,49 @@ struct VideoPlayerPage {
    * 顺序：落库 → release → 等上一次 initP 收尾 → 第二次 release → 换 vi → 详情 → initP。
    * 第二次 release 是为了收掉"上一次 initP 在等待期间又建出来的播放器"。
    */
-  private async loadShortItem(target: number): Promise<void> {
+  private async loadShortItem(target: number, deferVisual: boolean = false): Promise<void> {
     if (target < 0 || target >= this.shortItems.length) return;
     const item: ShortVideoFeedItem = this.shortItems[target];
     if (!item || !item.bvid) return;
     if (this.vi.bvid === item.bvid && this.shortIndex === target) return;
 
     const gen: number = ++this.shortGen;
+    if (deferVisual) this.ld = true;
+
+    // 目标条正好是正在预加载的那条：等它就绪（最多 1.5s），就绪后 initP 直接接管
+    if (this.shortPreloadBvid_ === item.bvid && this.shortPreloadPromise_ !== null) {
+      logInfo(`[ShortVideo] 等待下一条预加载就绪: ${item.bvid}`);
+      const preP: Promise<boolean> = this.shortPreloadPromise_.then((): boolean => true).catch((): boolean => false);
+      const timeoutP: Promise<boolean> = new Promise<boolean>((resolve: (v: boolean) => void): void => {
+        setTimeout((): void => resolve(false), 1500);
+      });
+      await Promise.race([preP, timeoutP]);
+      if (gen !== this.shortGen) return;
+    }
+
     this.flushShortProgress();
 
-    this.shortIndex = target;
-    this.shortDragY = 0;
-    this.shortSwitching = true;
-    this.shortCover = item.cover;
+    // 背景先交叉淡入：旧封面垫底、新封面淡入，和卡片滑动同时进行
+    this.shortBgPrev = this.shortBgCur.length > 0 ? this.shortBgCur : this.vi.cover;
+    this.shortBgCur = item.cover;
+    this.shortBgFade = 0;
+    animateTo({ duration: 420, curve: Curve.EaseOut }, (): void => {
+      this.shortBgFade = 1;
+    });
+
+    if (!deferVisual) {
+      this.shortIndex = target;
+      this.shortDragY = 0;
+      this.shortSwitching = true;
+      this.shortCover = item.cover;
+      this.shortCoverFadeGen++;
+      this.shortCoverFade = 1;
+    } else {
+      // 过渡中：画面上仍保留旧条（出卡用短封面快照，入卡是邻居），
+      // 但播放器立刻开始准备；落地时 initP 已经完成，直接出首帧。
+      this.shortSwitching = false;
+      this.shortCover = '';
+    }
     this.vd = null;
     this.vi = { bvid: item.bvid, cid: item.cid, title: item.title, cover: item.cover };
     this.likeCount = 0;
@@ -4441,30 +4848,45 @@ struct VideoPlayerPage {
     this.isFavorited = d.req_user?.favorite ?? false;
     this.pendingCommentAid = d.aid;
 
+    // ⭐ 先起播：把互动状态/关注/相关推荐都挪到 initP 之后（原先串行等两个网络请求，
+    //    白白给"换条后先看到封面"增加 ~280ms）。
+    this.updateShortItem(target, d);
+    await this.initP();
+    if (gen !== this.shortGen) return;
+    logInfo(`[ShortVideo] 换源完成: index=${target}, bvid=${item.bvid}, cid=${this.vi.cid}`);
+
+    // 互动状态/关注异步补齐（不阻塞首帧）
     if (!d.req_user) {
-      const st = await getVideoUserStatus(this.vi.bvid, d.aid);
-      if (gen !== this.shortGen) return;
-      if (st) {
+      getVideoUserStatus(this.vi.bvid, d.aid).then((st) => {
+        if (gen !== this.shortGen || !st) return;
         this.isLiked = st.like;
         this.isCoined = st.coin > 0;
         this.isFavorited = st.favorite;
-      }
+      }).catch((e: Error): void => {
+        logWarn(`[ShortVideo] 互动状态补齐失败: ${e.message}`);
+      });
     }
     if (d.owner && d.owner.mid > 0) {
-      const followed: boolean = await getFollowStatus(d.owner.mid);
-      if (gen !== this.shortGen) return;
-      this.isFollowed = followed;
+      getFollowStatus(d.owner.mid).then((followed: boolean): void => {
+        if (gen !== this.shortGen) return;
+        this.isFollowed = followed;
+      }).catch((e: Error): void => {
+        logWarn(`[ShortVideo] 关注状态补齐失败: ${e.message}`);
+      });
     }
 
-    this.updateShortItem(target, d);
     this.fetchRelatedVideos(d.bvid);
-    this.prefetchShortNext();
-
-    await this.initP();
-    logInfo(`[ShortVideo] 换源完成: index=${target}, bvid=${item.bvid}, cid=${this.vi.cid}`);
+    if (deferVisual) {
+      this.prefetchShortMeta(target + 1, true);
+      this.prefetchShortMeta(target + 2, false);
+      this.prefetchShortMeta(target - 1, false);
+    } else {
+      this.prefetchShortNext();
+    }
   }
 
   private settleShortDrag(target: number): void {
+    this.pauseShortPreview();
     this.shortSettling = true;
     animateTo({ duration: 240, curve: Curve.EaseOut }, (): void => {
       this.shortDragY = target;
@@ -4476,9 +4898,12 @@ struct VideoPlayerPage {
 
   /** 手势松手：越过阈值就滑出并换源，否则回弹 */
   private async finishShortDrag(): Promise<void> {
-    const h: number = this.shortCardH();
+    if (this.shortSettling) return;
+    // 位移量用「卡位到屏幕边缘」的距离：卡片 UI 与上/下一条同速平移，
+    // 动画结束时下一条刚好落到卡位（此前用卡片高度，横向视频会只滑一半再跳）。
+    const slot: number = this.shortCardY() + this.shortCardH();
     const y: number = this.shortDragY;
-    if (Math.abs(y) < h * 0.18) {
+    if (Math.abs(y) < slot * 0.18) {
       this.settleShortDrag(0);
       return;
     }
@@ -4495,14 +4920,48 @@ struct VideoPlayerPage {
       this.settleShortDrag(0);
       return;
     }
+    const targetItem: ShortVideoFeedItem | undefined = this.shortItems[target];
+    // 手指抬起：预览回到首帧，落地时与主播放器的 0 秒对齐，避免回跳
+    this.pauseShortPreview();
+    this.shortSlideGen++;
+    const slideGen: number = this.shortSlideGen;
+    // 过渡开始：先让旧视频继续露出 80ms（出卡尚未走远，不能立刻换成封面），
+    // 80ms 后再盖封面 + 换源；此时卡片已滑出大半，看不到"闪封面"。
+    this.shortSlideCover = this.vi.cover;
+    this.shortSlideCoverOpacity = 0;
     this.shortSettling = true;
+    const targetAspect: number = targetItem !== undefined && targetItem.aspect !== undefined && targetItem.aspect > 0
+      ? targetItem.aspect : this.shortVideoAspect();
     animateTo({ duration: 250, curve: Curve.EaseOut }, (): void => {
-      this.shortDragY = -dir * h;
+      this.shortDragY = -dir * slot;
     });
     setTimeout((): void => {
+      if (slideGen !== this.shortSlideGen) return;
+      // 视频层按目标画幅提前改几何（藏在封面下），落地时不再二次缩放
+      this.shortSlideAspect = targetAspect;
+      this.shortSlideCoverOpacity = 1;
+      this.loadShortItem(target, true);
+    }, 80);
+    setTimeout((): void => {
+      if (slideGen !== this.shortSlideGen) return;
       this.shortDragY = 0;
       this.shortSettling = false;
-      this.loadShortItem(target);
+      this.shortIndex = target;
+      this.shortSlideCover = '';
+      this.shortSlideAspect = 0;
+      this.shortSlideCoverOpacity = 1;
+      // 主播放器已到卡位，释放首帧预览的第二路播放器
+      this.releaseShortPreview();
+      // 播放器还没准备好 → 用目标条封面兜住（prepared 后淡出）
+      if (this.ld) {
+        const it: ShortVideoFeedItem | undefined = this.shortItems[target];
+        if (it) {
+          this.shortSwitching = true;
+          this.shortCover = it.cover;
+          this.shortCoverFadeGen++;
+          this.shortCoverFade = 1;
+        }
+      }
     }, 265);
   }
 
@@ -4560,13 +5019,14 @@ struct VideoPlayerPage {
     if (e.type !== TouchType.Up) return;
     const x: number = this.shortTouchX;
     logInfo(`[ShortVideo] 底部胶囊点击 x=${x.toFixed(1)}`);
+    // 顺序：返回 / 弹幕开关 / 发弹幕(居中 112) / 评论区 / 全屏
     if (x < 51) {
       this.turnLightsOn();
-    } else if (x < 197) {
-      this.showDanmakuSheet = true;
-    } else if (x < 243) {
+    } else if (x < 97) {
       this.toggleDanmaku();
-    } else if (x < 289) {
+    } else if (x < 215) {
+      this.showDanmakuSheet = true;
+    } else if (x < 261) {
       this.openShortComments();
     } else {
       this.toggleFS();
@@ -5415,14 +5875,25 @@ struct VideoPlayerPage {
       // ⭐ DASH 双流：走「探测→MPD→转播站→单 AVPlayer」，替代双 AVPlayer 手动同步
       if (result.audioUrl && result.dash) {
         this.isDashStream_ = true;
-        this.dashBridge_ = new DashPlayerBridge();
-        const playerUrl = await this.dashBridge_.buildAndStart(
-          result.dash, 'https://www.bilibili.com/',
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-          AppStorage.get<string>('biliCookie') || '',
-          // ⭐ 起播位（续播点）传给转播站做「分段预取」：起播时为 0 无副作用，
-          //    有续播点时把覆盖该时刻的分段在 prepare 期间先拉好，seek 时直接命中缓存
-          Math.max(0, Math.round(this.initialProgress_ * 1000)));
+        // ⭐ 短视频：下一条的转播站已提前起好并预取了首段 ⇒ 直接接管，跳过取流/探测/起服务
+        const pre: ShortPreloadHandle | null = this.takeShortPreload(this.vi.bvid, this.vi.cid, result.actualQn || 0);
+        let playerUrl: string | null = null;
+        if (pre) {
+          this.dashBridge_ = pre.bridge;
+          playerUrl = pre.url;
+          logInfo('[VideoPlayer] 复用下一条预加载转播站，跳过探测/起服务');
+        } else {
+          // 没有可复用的预加载：把残留的（多半是别的条）停掉，避免多一个转播站常驻
+          this.stopShortPreload();
+          this.dashBridge_ = new DashPlayerBridge();
+          playerUrl = await this.dashBridge_.buildAndStart(
+            result.dash, 'https://www.bilibili.com/',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            AppStorage.get<string>('biliCookie') || '',
+            // ⭐ 起播位（续播点）传给转播站做「分段预取」：起播时为 0 无副作用，
+            //    有续播点时把覆盖该时刻的分段在 prepare 期间先拉好，seek 时直接命中缓存
+            Math.max(0, Math.round(this.initialProgress_ * 1000)));
+        }
         if (!playerUrl) {
           this.err = 'DASH 转播站启动失败';
           logError(`[VideoPlayer] dashBridge.buildAndStart 失败`);
@@ -5519,10 +5990,20 @@ struct VideoPlayerPage {
           }
           break;
         case 'prepared':
-          // ⭐ 短视频换源：新视频已就绪 → 收起切换期的封面，露出首帧
-          this.shortSwitching = false;
-          this.shortCover = '';
+          // ⭐ 短视频换源：新视频已就绪 → 封面淡出，露出首帧（避免硬切造成的"封面闪一下"）
           this.ld = false;
+          if (this.shortSwitching) {
+            const fadeGen: number = this.shortCoverFadeGen;
+            animateTo({ duration: 160, curve: Curve.EaseOut }, (): void => {
+              this.shortCoverFade = 0;
+            });
+            setTimeout((): void => {
+              if (fadeGen !== this.shortCoverFadeGen) return;
+              this.shortSwitching = false;
+              this.shortCover = '';
+              this.shortCoverFade = 1;
+            }, 180);
+          }
           this.dur = (this.av?.duration || 0) / 1000;
           // ⭐ 进度调节缩略图：起播后延迟预取列表（失败/无缩略图的视频静默降级）
           this.prefetchVideoShot_();
@@ -5539,10 +6020,10 @@ struct VideoPlayerPage {
           try { this.av?.setVolume(1.0); if (this.mute) this.setSystemVolume(0); } catch (e) { }
           try {
             // 根据用户选择的缩放模式动态设置 videoScaleType
-            // ⭐ 关灯短视频：卡片内一律完整显示（SCALED_ASPECT），不能按用户的"填充/等高"
-            //    设置去裁剪 —— 横屏视频塞进竖屏卡会被裁成竖屏，用户明确不接受。
+            // ⭐ 关灯短视频：卡片 = 手机全宽，视频铺满卡片（FIT_CROP）；
+            //    竖屏视频超出屏幕的上下部分裁掉，横屏视频按画幅留出上下背景，均无黑边。
             const scaleType = this.isShortVideo()
-              ? media.VideoScaleType.VIDEO_SCALE_TYPE_SCALED_ASPECT
+              ? media.VideoScaleType.VIDEO_SCALE_TYPE_FIT_CROP
               : this.getVideoScaleType();
             this.av!.videoScaleType = scaleType;
           } catch (e) { }
@@ -8931,7 +9412,7 @@ struct VideoPlayerPage {
   
   // ═══════════════════════ 关灯短视频覆盖层（v2 沉浸胶囊版）═══════════════════════
 
-  /** 视频卡底部信息：标题 / 描述 / 标签 / 时间·播放·弹幕 */
+  /** 视频卡底部信息：标题 / 描述 / 标签 / 时间·播放·弹幕（文字阴影保证可读性，无渐变遮罩） */
   @Builder
   shortCardInfo() {
     Column() {
@@ -8943,40 +9424,36 @@ struct VideoPlayerPage {
         .textOverflow({ overflow: TextOverflow.Ellipsis })
         .width('100%')
         .margin({ bottom: 7 })
+        .textShadow({ radius: 9, color: 'rgba(0,0,0,0.85)', offsetX: 0, offsetY: 1 })
       if (this.shortDesc().length > 0) {
         Text(this.shortDesc())
           .fontSize(11.5)
           .lineHeight(17)
-          .fontColor('rgba(255,255,255,0.82)')
+          .fontColor('rgba(255,255,255,0.86)')
           .maxLines(2)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .width('100%')
           .margin({ bottom: 9 })
+          .textShadow({ radius: 7, color: 'rgba(0,0,0,0.85)', offsetX: 0, offsetY: 1 })
       }
-      Row({ space: 6 }) {
+      Row({ space: 12 }) {
         if (this.shortTag1().length > 0) {
           Text('#' + this.shortTag1())
             .fontSize(9.5)
-            .fontColor('rgba(255,255,255,0.92)')
+            .fontColor('rgba(255,255,255,0.94)')
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
             .constraintSize({ maxWidth: 150 })
-            .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-            .backgroundColor('rgba(255,255,255,0.14)')
-            .border({ width: 0.5, color: 'rgba(255,255,255,0.24)' })
-            .borderRadius(999)
+            .textShadow({ radius: 7, color: 'rgba(0,0,0,0.85)', offsetX: 0, offsetY: 1 })
         }
         if (this.shortTag2().length > 0) {
           Text('#' + this.shortTag2())
             .fontSize(9.5)
-            .fontColor('rgba(255,255,255,0.92)')
+            .fontColor('rgba(255,255,255,0.94)')
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
             .constraintSize({ maxWidth: 170 })
-            .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-            .backgroundColor('rgba(255,255,255,0.14)')
-            .border({ width: 0.5, color: 'rgba(255,255,255,0.24)' })
-            .borderRadius(999)
+            .textShadow({ radius: 7, color: 'rgba(0,0,0,0.85)', offsetX: 0, offsetY: 1 })
         }
       }
       .width('100%')
@@ -8984,15 +9461,16 @@ struct VideoPlayerPage {
       if (this.shortMeta().length > 0) {
         Text(this.shortMeta())
           .fontSize(10)
-          .fontColor('rgba(255,255,255,0.6)')
+          .fontColor('rgba(255,255,255,0.7)')
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .width('100%')
+          .textShadow({ radius: 7, color: 'rgba(0,0,0,0.85)', offsetX: 0, offsetY: 1 })
       }
     }
     .width('100%')
     .alignItems(HorizontalAlign.Start)
-    .padding({ left: 16, right: 16, bottom: 16 })
+    .padding({ left: 16, right: 16, bottom: this.shortInfoPadBottom() })
   }
 
   @Builder
@@ -9020,7 +9498,7 @@ struct VideoPlayerPage {
             ? (this.isCoined ? '#FFB800' : 'rgba(255,255,255,0.92)')
             : (this.isFavorited ? '#FF9F43' : 'rgba(255,255,255,0.92)')))
     }
-    .height(40)
+    .height(32)
     .width(this.shortStatItemW(kind))
     .justifyContent(FlexAlign.Center)
     // ⛔ 不挂 onClick：触摸交给胶囊内容 Row 的 onTouch 分发，HDS 才能拿到按压形变/光斑
@@ -9083,41 +9561,38 @@ struct VideoPlayerPage {
     .onTouch((e: TouchEvent): void => { this.onShortStatsTouch(e); })
   }
 
-  /** 下方：返回 / 发弹幕 / 弹幕开关 / 评论区 / 全屏（内容画在 HDS 玻璃的 tabBar 里） */
+  /** 下方：返回 / 弹幕开关 / 发弹幕（居中） / 评论区 / 全屏 */
   @Builder
   shortBottomContent() {
     Row() {
       Stack() {
-        Image($r('app.media.return_453')).width(20).height(20).fillColor('#FFFFFF')
+        Image($r('app.media.trash_fanhui')).width(24).height(24).fillColor('#FFFFFF')
       }
       .width(40).height(40).borderRadius(20)
-
-      Row({ space: 6 }) {
-        Image($r('app.media.danmfas')).width(16).height(16).fillColor(this.shortTheme())
-        Text('发弹幕').fontSize(11.5).fontWeight(FontWeight.Bold).fontColor(Color.White)
-      }
-      .width(140).height(40).borderRadius(20)
-      .justifyContent(FlexAlign.Center)
-      .backgroundColor(Color.Transparent)
 
       Stack() {
         Image($r('app.media.chat_bubble_text_square_solid'))
-          .width(20).height(20)
+          .width(24).height(24)
           .fillColor(this.isDanmakuEnabled ? '#FFFFFF' : 'rgba(255,255,255,0.45)')
-        Column()
-          .width(6).height(6).borderRadius(3)
-          .backgroundColor(this.isDanmakuEnabled ? '#34C759' : '#6B7280')
-          .position({ x: 27, y: 8 })
+      }
+      .width(40).height(40).borderRadius(20)
+
+      Row({ space: 5 }) {
+        Image($r('app.media.danmfas')).width(15).height(15).fillColor(Color.White)
+        Text('发弹幕').fontSize(11).fontWeight(FontWeight.Bold).fontColor(Color.White)
+      }
+      .width(112).height(36).borderRadius(18)
+      .justifyContent(FlexAlign.Center)
+      .backgroundColor('rgba(110,110,110,0.52)')
+      .border({ width: 1, color: 'rgba(255,255,255,0.45)' })
+
+      Stack() {
+        Image($r('app.media.message')).width(24).height(24).fillColor('#FFFFFF')
       }
       .width(40).height(40).borderRadius(20)
 
       Stack() {
-        Image($r('app.media.message')).width(20).height(20).fillColor('#FFFFFF')
-      }
-      .width(40).height(40).borderRadius(20)
-
-      Stack() {
-        Image($r('app.media.full_screen_32')).width(20).height(20).fillColor('#FFFFFF')
+        Image($r('app.media.full_screen_32')).width(24).height(24).fillColor('#FFFFFF')
       }
       .width(40).height(40).borderRadius(20)
     }
@@ -9128,81 +9603,91 @@ struct VideoPlayerPage {
     .onTouch((e: TouchEvent): void => { this.onShortBottomTouch(e); })
   }
 
-  /** 上/下一条：只渲染封面 + 标题，跟着手指滑入视频卡 */
+  /** 上/下一条：只渲染封面 + 标题，跟着手指滑入视频卡（同样用文字阴影，无渐变遮罩） */
   @Builder
   shortNeighbor(dir: number) {
     if (this.shortNeighborItem(dir) !== undefined) {
       Stack({ alignContent: Alignment.BottomStart }) {
-        if (this.shortNeighborCover(dir).length > 0) {
-          Image(this.shortNeighborCover(dir))
-            .width('100%').height('100%')
-            .objectFit(ImageFit.Cover)
-        } else {
-          Column().width('100%').height('100%').backgroundColor('#111318')
-        }
-        Column()
-          .width('100%').height(this.shortCardH() * 0.5)
-          .linearGradient({ angle: 180, colors: [['#00000000', 0], ['#E6080604', 1]] })
-          .position({ x: 0, y: this.shortCardH() * 0.5 })
-        Column() {
-          Text(this.shortNeighborTitle(dir))
-            .fontSize(15).fontWeight(FontWeight.Bold).fontColor(Color.White)
-            .maxLines(2)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-            .width('100%')
-          if (this.shortNeighborOwner(dir).length > 0) {
-            Text(this.shortNeighborOwner(dir))
-              .fontSize(11).fontColor('rgba(255,255,255,0.82)')
-              .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-              .width('100%').margin({ top: 4 })
-          }
-          if (this.shortNeighborMeta(dir).length > 0) {
-            Text(this.shortNeighborMeta(dir))
-              .fontSize(9).fontColor('rgba(255,255,255,0.55)')
-              .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-              .width('100%').margin({ top: 3 })
+        // 下一条的首帧预览已就绪且正在上滑 → 不画海报，露出下层第二路 SURFACE 的真实画面
+        if (!(dir === 1 && this.shortPreviewReady && this.shortDragY < 0)) {
+          if (this.shortNeighborCover(dir).length > 0) {
+            Image(this.shortNeighborCover(dir))
+              .width('100%').height('100%')
+              .objectFit(ImageFit.Cover)
+          } else {
+            Column().width('100%').height('100%').backgroundColor('#111318')
           }
         }
-        .width('100%')
-        .padding({ left: 16, right: 16, bottom: 20 })
-        .alignItems(HorizontalAlign.Start)
+        if (!this.shortTextHidden) {
+          Column() {
+            Text(this.shortNeighborTitle(dir))
+              .fontSize(15).fontWeight(FontWeight.Bold).fontColor(Color.White)
+              .maxLines(2)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .width('100%')
+              .textShadow({ radius: 9, color: 'rgba(0,0,0,0.85)', offsetX: 0, offsetY: 1 })
+            if (this.shortNeighborOwner(dir).length > 0) {
+              Text(this.shortNeighborOwner(dir))
+                .fontSize(11).fontColor('rgba(255,255,255,0.86)')
+                .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+                .width('100%').margin({ top: 4 })
+                .textShadow({ radius: 7, color: 'rgba(0,0,0,0.85)', offsetX: 0, offsetY: 1 })
+            }
+            if (this.shortNeighborMeta(dir).length > 0) {
+              Text(this.shortNeighborMeta(dir))
+                .fontSize(9).fontColor('rgba(255,255,255,0.68)')
+                .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+                .width('100%').margin({ top: 3 })
+                .textShadow({ radius: 7, color: 'rgba(0,0,0,0.85)', offsetX: 0, offsetY: 1 })
+            }
+          }
+          .width('100%')
+          .padding({ left: 16, right: 16, bottom: 20 })
+          .alignItems(HorizontalAlign.Start)
+        }
       }
-      .width(this.shortCardW()).height(this.shortCardH())
-      .position({ x: this.shortCardX(), y: this.shortCardY() })
-      .translate({ y: dir * this.shortCardH() + this.shortDragY })
+      .width(this.shortCardW()).height(this.shortNeighborH(dir))
+      .position({ x: this.shortCardX(), y: this.shortNeighborY(dir) })
+      .translate({ y: dir * (this.shortCardY() + this.shortCardH()) + this.shortDragY })
       .borderRadius(24)
       .clip(true)
-      .backgroundColor('#000000')
+      .backgroundColor(dir === 1 && this.shortPreviewReady && this.shortDragY < 0 ? Color.Transparent : '#000000')
       // 静止时只显示当前卡；上下滑时才把上/下一条露出来（避免卡底与底栏之间露出下一条的边）
       .opacity(this.shortDragY === 0 ? 0 : 1)
       .hitTestBehavior(HitTestMode.None)
     }
   }
 
-  /** 当前视频卡的 UI 层：封面（换源中）/ 暗色渐变 / 信息 / 中央播放；触摸挂在本层 Stack 上 */
+  /** 当前视频卡的 UI 层：换源中封面 / 信息 / 中央播放；视频本体常驻卡位、拖动期间持续播放 */
   @Builder
   shortCardLayer() {
     Stack() {
-      // 拖动/换源期间用封面承接（XComponent 是原生 SURFACE，不能跟着位移）
-      if ((this.shortSwitching || this.shortDragY !== 0) &&
-        (this.shortSwitching ? this.shortCover : this.vi.cover).length > 0) {
-        Image(this.shortSwitching ? this.shortCover : this.vi.cover)
+      // 仅「真正换源」期间用封面承接（XComponent 是原生 SURFACE，换源时会短暂无帧）。
+      // ⚠️ 拖动切换期间**不再**用封面：视频本体留在卡位继续播放，只有卡片 UI 跟着手指走。
+      if (this.shortSwitching && this.shortCover.length > 0) {
+        Image(this.shortCover)
           .width('100%').height('100%')
           .objectFit(ImageFit.Cover)
+          .opacity(this.shortCoverFade)
           .hitTestBehavior(HitTestMode.None)
       }
-      Column()
-        .width('100%').height(this.shortCardH() * 0.58)
-        .linearGradient({ angle: 180, colors: [['#00000000', 0], ['#C70A0806', 0.62], ['#F00A0806', 1]] })
-        .position({ x: 0, y: this.shortCardH() * 0.42 })
-        .hitTestBehavior(HitTestMode.None)
-      Stack({ alignContent: Alignment.BottomStart }) {
-        this.shortCardInfo()
+      // 出卡快照：滑动过渡期间盖住已被释放/重建的视频层
+      if (this.shortSlideCover.length > 0) {
+        Image(this.shortSlideCover)
+          .width('100%').height('100%')
+          .objectFit(ImageFit.Cover)
+          .opacity(this.shortSlideCoverOpacity)
+          .hitTestBehavior(HitTestMode.None)
       }
-      .width('100%').height('100%')
-      .hitTestBehavior(HitTestMode.None)
+      if (!this.shortTextHidden && !this.shortSettling) {
+        Stack({ alignContent: Alignment.BottomStart }) {
+          this.shortCardInfo()
+        }
+        .width('100%').height('100%')
+        .hitTestBehavior(HitTestMode.None)
+      }
 
-      if (!this.play) {
+      if (!this.play && !this.shortSettling) {
         Column({ space: 9 }) {
           Stack() {
             Image($r('app.media.play_fill')).width(25).height(25).fillColor(Color.White)
@@ -9233,6 +9718,8 @@ struct VideoPlayerPage {
         .onActionUpdate((event: GestureEvent): void => {
           if (this.shortSettling) return;
           this.shortDragY = event.offsetY;
+          if (event.offsetY < -8) this.startShortPreviewPlayback();
+          else if (event.offsetY >= 0) this.pauseShortPreview();
         })
         .onActionEnd((): void => {
           logInfo(`[ShortVideo] 拖动结束 dragY=${this.shortDragY.toFixed(1)}`);
@@ -9247,56 +9734,30 @@ struct VideoPlayerPage {
   @Builder
   buildShortVideoChrome() {
     Stack() {
-      // 三组沉浸光感胶囊：内容画在 HdsTabs 的 tabBar 里、玻璃收触摸（hitThrough:false）
-      // ⇒ 系统按压形变 + 光斑；动作由内容 Row 的 onTouch 按落点分发。
-      Stack() {
-        HdsGlassBar({
-          barWidth: this.shortUpW(), barHeight: 40, contentPadding: 4,
-          hitThrough: true, onButtonClick: (): void => {}
-        }) {
-          this.shortUpContent()
-        }
-      }
-      .width(this.shortUpW() + 16).height(56)
-      .position({ x: 4, y: 18 })
+      // ⭐ 全屏手势层：卡片以外的空白区域也要能上下滑切换。
+      //    放在最底层（卡片/胶囊都在它上面），空白处由它接手势，卡片区域仍由卡片自己的 PanGesture。
+      Column()
+        .width('100%').height('100%')
+        .backgroundColor('#01000000')
+        .gesture(
+          PanGesture({ direction: PanDirection.Vertical, distance: 8 })
+            .onActionUpdate((event: GestureEvent): void => {
+              if (this.shortSettling) return;
+              this.shortDragY = event.offsetY;
+              if (event.offsetY < -8) this.startShortPreviewPlayback();
+              else if (event.offsetY >= 0) this.pauseShortPreview();
+            })
+            .onActionEnd((): void => {
+              logInfo(`[ShortVideo] 空白区拖动结束 dragY=${this.shortDragY.toFixed(1)}`);
+              this.finishShortDrag();
+            })
+            .onActionCancel((): void => {
+              this.settleShortDrag(0);
+            })
+        )
 
-      // 关注：独立圆形玻璃按钮，直径 = 左侧胶囊高度 40
-      Stack() {
-        HdsGlassBar({
-          barWidth: 40, barHeight: 40, contentPadding: 4,
-          hitThrough: false, onButtonClick: (): void => { this.toggleFollow(); }
-        }) {
-          this.shortFollowContent()
-        }
-      }
-      .width(56).height(56)
-      .position({ x: this.shortFollowX(), y: 18 })
-
-      Stack() {
-        HdsGlassBar({
-          barWidth: this.shortStatsW(), barHeight: 40, contentPadding: 4,
-          hitThrough: false, onButtonClick: (): void => {}
-        }) {
-          this.shortStatsContent()
-        }
-      }
-      .width(this.shortStatsW() + 16).height(56)
-      .position({ x: this.cw - 4 - (this.shortStatsW() + 16), y: 18 })
-
-      Stack() {
-        HdsGlassBar({
-          barWidth: this.shortBottomW(), barHeight: 56, contentPadding: 4,
-          hitThrough: false, onButtonClick: (): void => {}
-        }) {
-          this.shortBottomContent()
-        }
-      }
-      .width(this.shortBottomW() + 16).height(72)
-      .position({ x: this.shortBottomX() - 8, y: this.ch - 76 })
-
-      // ⭐ 卡片 UI 舞台放在**最上层**：上下滑时卡片从顶栏/底栏**上面**推出去，
-      //    不会被上下胶囊挡住（用户反馈的“有遮挡、不到屏幕边缘”）。
-      //    静止时卡片在卡位，舞台整体 Transparent，胶囊照常收触摸。
+      // ⭐ 卡片 UI 舞台在**下层**（胶囊在它上面）：上下滑时卡片从胶囊下方滑出；
+      //    上/下一条的起点在**屏幕外**（±(cardY+cardH)），跟手从屏幕边缘进入，不会突然出现。
       Stack() {
         Stack() {
           this.shortCardLayer()
@@ -9310,8 +9771,101 @@ struct VideoPlayerPage {
       }
       .width('100%').height('100%')
       .hitTestBehavior(HitTestMode.Transparent)
+
+      // 三组沉浸光感胶囊：内容画在 HdsTabs 的 tabBar 里、玻璃收触摸（hitThrough:false）
+      // ⇒ 系统按压形变 + 光斑；动作由内容 Row 的 onTouch 按落点分发。
+      Stack() {
+        HdsGlassBar({
+          barWidth: this.shortUpW(), barHeight: 40, contentPadding: 4,
+          hitThrough: true, onButtonClick: (): void => {}
+        }) {
+          this.shortUpContent()
+        }
+      }
+      .width(this.shortUpW() + 16).height(56)
+      .position({ x: 4, y: this.shortTopY() })
+
+      // 关注：独立圆形玻璃按钮，直径 = 左侧胶囊高度 40
+      Stack() {
+        HdsGlassBar({
+          barWidth: 40, barHeight: 40, contentPadding: 4,
+          hitThrough: false, onButtonClick: (): void => { this.toggleFollow(); }
+        }) {
+          this.shortFollowContent()
+        }
+      }
+      .width(56).height(56)
+      .position({ x: this.shortFollowX(), y: this.shortTopY() })
+
+      Stack() {
+        HdsGlassBar({
+          barWidth: this.shortStatsW(), barHeight: 40, contentPadding: 4,
+          hitThrough: false, onButtonClick: (): void => {}
+        }) {
+          this.shortStatsContent()
+        }
+      }
+      .width(this.shortStatsW() + 16).height(56)
+      .position({ x: this.cw - 4 - (this.shortStatsW() + 16), y: this.shortTopY() })
+
+      Stack() {
+        HdsGlassBar({
+          barWidth: this.shortBottomW(), barHeight: 56, contentPadding: 4,
+          hitThrough: false, onButtonClick: (): void => {}
+        }) {
+          this.shortBottomContent()
+        }
+      }
+      .width(this.shortBottomW() + 16).height(72)
+      .position({ x: this.shortBottomX() - 8, y: this.shortBottomY() })
+
+      // 底栏左侧的圆形玻璃按钮：展开/收起卡片文字（44 直径，收起时图标翻转 180°）
+      Stack() {
+        HdsGlassBar({
+          barWidth: 44, barHeight: 44, contentPadding: 4,
+          hitThrough: false,
+          onButtonClick: (): void => { this.shortTextHidden = !this.shortTextHidden; }
+        }) {
+          Row() {
+            Image($r('app.media.trash_fzankai'))
+              .width(22).height(22)
+              .fillColor(this.shortTextHidden ? 'rgba(255,255,255,0.6)' : '#FFFFFF')
+              .rotate({ angle: this.shortTextHidden ? 0 : 180 })
+          }
+          .width(44).height('100%')
+          .justifyContent(FlexAlign.Center)
+          .alignItems(VerticalAlign.Center)
+        }
+      }
+      .width(60).height(60)
+      .position({ x: this.shortBottomX() - 60, y: this.shortBottomY() + 6 })
     }
     .width('100%').height('100%')
+  }
+
+  /**
+   * 下一条首帧预览层：第二个 SURFACE，跟随邻居卡一起滑入。
+   * 只在短视频、已准备好、且手指向上拖（看下一条）时显示；
+   * 邻居卡这时不再画海报，露出这层真实画面。
+   */
+  @Builder
+  buildShortPreviewOverlay() {
+    Stack() {
+      XComponent({ id: 'video_preview_xc', type: XComponentType.SURFACE, controller: this.xcPreview })
+        .onLoad(this.onXCPreview)
+        .width(this.shortCardW())
+        .height(this.shortNeighborH(1))
+        .borderRadius(24)
+        .clip(true)
+        .backgroundColor(Color.Black)
+    }
+    .width(this.shortCardW()).height(this.shortNeighborH(1))
+    // 静止时放在屏内（opacity 0）：SURFACE 只有在可见区域才会 onLoad；
+    // 上滑时再移到邻居卡的位置并跟手平移。
+    .position({ x: this.shortCardX(), y: this.shortDragY < 0 ? this.shortNeighborY(1) : 0 })
+    .translate({ y: this.shortDragY < 0 ? ((this.shortCardY() + this.shortCardH()) + this.shortDragY) : 0 })
+    .opacity(this.isShortVideo() && this.shortPreviewReady && this.shortDragY < 0 ? 1 : 0)
+    .hitTestBehavior(HitTestMode.None)
   }
 
   // ═══ 常驻播放器层：XComponent 单实例（全文件唯一），跨布局分支常驻，只改几何不改挂载 ═══
@@ -9492,6 +10046,9 @@ struct VideoPlayerPage {
     .position({ x: this.ovRectX(), y: this.ovRectY() })
     .width(this.ovRectW())
     .height(this.ovRectH())
+    // ⭐ 短视频：视频本体跟着卡片一起平移（只做 translate，不改 surface 尺寸/裁剪面），
+    //    这样上下滑时视频仍在播放且跟着卡片走，不再"钉"在卡位。
+    .translate({ y: this.isShortVideo() ? this.shortDragY : 0 })
     // ⚠️ 同 XComponent：缩小/还原期间必须与共享 animateTo **同参**（300ms + EaseOut），不能写 0。
     //    原因见 XComponent 那条注释 —— 节点自带的 .animation() 覆盖外层 animateTo，
     //    写 0 会让这一层瞬跳、写 120 会让它先到位，两者都不同步。
@@ -9503,7 +10060,9 @@ struct VideoPlayerPage {
     }) // ⭐ 短视频：整层 position 跟手，松手 250ms 与卡片 UI 同步
     // ⭐ 透明度必须在 .animation() 之后：这样它由外层 animateTo 驱动，与 vidShrink 同步 300ms 淡出；
     //    若写在 .animation() 之前，会被那条 120ms 的隐式动画接管而先到位。
-    .opacity(this.isShortVideo() && this.shortDragY !== 0 ? 0 : this.shrinkPlateOpacity())
+    // ⭐ 短视频拖动期间保持视频常驻可见（不再整层淡出）：SURFACE 留在卡位继续播放，
+    //    卡片 UI 从它上方滑走；只有真正换源时才由 shortSwitching 的封面承接。
+    .opacity(this.shrinkPlateOpacity())
     // ⭐ 圆角：非全屏时改由 shrinkRadius() 给值 —— 缩小时它随 vidShrink 从卡片圆角连续过渡到
     //    方框边长的一半（= 正圆），配合 shrinkSlotW/H 的正方形外框裁出圆形小窗。
     //    全屏时仍走原来的 fsLerpRadius（20 ↔ 卡片圆角）。非缩小时两者取值相同，行为不变。
@@ -11485,11 +12044,35 @@ struct VideoPlayerPage {
           .objectFit(ImageFit.Cover)
           .blur(this.loBgBlur)
           .scale({ x: this.loBgScale, y: this.loBgScale })
-          .opacity(this.isLightsOff && !this.lightsOffHideOnly ? 1 : 0)
+          .opacity(this.isLightsOff && !this.lightsOffHideOnly && !this.isShortVideo() ? 1 : 0)
         Column()
           .width('100%').height('100%')
           .backgroundColor(`rgba(0,0,0,${this.loBgDim})`)
-          .opacity(this.isLightsOff && !this.lightsOffHideOnly ? 1 : 0)
+          .opacity(this.isLightsOff && !this.lightsOffHideOnly && !this.isShortVideo() ? 1 : 0)
+      }
+      // ⭐ 关灯短视频背景：双封面交叉淡入（上层新封面 opacity 0→1），切换时不再硬跳
+      if (this.isShortVideo() && (this.shortBgPrev.length > 0 || this.shortBgCur.length > 0)) {
+        Stack() {
+          if (this.shortBgPrev.length > 0) {
+            Image(this.shortBgPrev)
+              .width('100%').height('100%')
+              .objectFit(ImageFit.Cover)
+              .blur(this.loBgBlur)
+              .scale({ x: this.loBgScale, y: this.loBgScale })
+          }
+          if (this.shortBgCur.length > 0) {
+            Image(this.shortBgCur)
+              .width('100%').height('100%')
+              .objectFit(ImageFit.Cover)
+              .blur(this.loBgBlur)
+              .scale({ x: this.loBgScale, y: this.loBgScale })
+              .opacity(this.shortBgFade)
+          }
+          Column()
+            .width('100%').height('100%')
+            .backgroundColor(`rgba(0,0,0,${this.loBgDim})`)
+        }
+        .width('100%').height('100%')
       }
       // 背景图（模糊/壁纸/纯色）
       if (this.videoBgMode === 'wallpaper' && !(this.isLightsOff && !this.lightsOffHideOnly)) {
@@ -11679,6 +12262,8 @@ struct VideoPlayerPage {
           .onAreaChange(this.onCA)
         // ⭐ 常驻播放器层（XComponent 单实例，跨分支常驻，几何随状态驱动）
         this.buildPlayerOverlay()
+        // ⭐ 下一条首帧预览（第二个 SURFACE，常驻挂载：只在可见区域才会 onLoad）
+        this.buildShortPreviewOverlay()
       }
       .opacity(this.fs ? 1 : (this.contentVisible ? this.calcPageEnterOpacity() : 0))
       .scale({

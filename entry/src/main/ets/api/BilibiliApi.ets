@@ -521,10 +521,18 @@ export interface VideoDetail {
   pages?: Array<VideoPageItem>;
   // ⭐ 分区名（详情接口原生字段，短视频卡片标签用；缺省时不展示）
   tname?: string;
+  // ⭐ 画幅（短视频预加载时提前知道卡片比例；UGC 详情接口原生字段）
+  dimension?: VideoDimension;
   // 用户互动状态（需要登录后才会返回）
   req_user?: VideoDetailReqUser;
   // ⭐ UGC 合集
   ugc_season?: UgcSeason;
+}
+
+export interface VideoDimension {
+  width: number;
+  height: number;
+  rotate?: number;
 }
 
 export interface VideoDetailResponse {
