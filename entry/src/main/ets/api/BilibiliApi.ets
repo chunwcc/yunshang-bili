@@ -519,6 +519,8 @@ export interface VideoDetail {
   stat: VideoDetailStat;
   cid?: number;           // 首P的cid
   pages?: Array<VideoPageItem>;
+  // ⭐ 分区名（详情接口原生字段，短视频卡片标签用；缺省时不展示）
+  tname?: string;
   // 用户互动状态（需要登录后才会返回）
   req_user?: VideoDetailReqUser;
   // ⭐ UGC 合集
