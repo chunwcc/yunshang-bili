@@ -1224,53 +1224,21 @@ export struct PersonalizationPage {
   }
 
   @Builder
-  FloatBtnSpeedSheetContent() {
-    Column() {
-      // 标题
-      Text('浮窗旋转速度')
-        .fontSize(16)
-        .fontWeight(FontWeight.Medium)
-        .fontColor(this.isDarkMode ? '#FFFFFF' : '#000000')
-        .margin({ top: 8, bottom: 16 })
-
+  FloatBtnSpeedMenuBuilder() {
+    Menu() {
       ForEach(FLOAT_BTN_SPEEDS, (option: FloatBtnSpeedOption) => {
-        Row() {
-          Text(this.floatBtnRotationSpeed === option.value ? '●' : '○')
-            .fontSize(14)
-            .fontColor(this.floatBtnRotationSpeed === option.value
-              ? (this.isDarkMode ? '#FFFFFF' : '#000000')
-              : (this.isDarkMode ? '#888888' : '#999999'))
-            .margin({ right: 8 })
-          Text(option.label)
-            .fontSize(14)
-            .fontColor(this.floatBtnRotationSpeed === option.value
-              ? (this.isDarkMode ? '#FFFFFF' : '#000000')
-              : (this.isDarkMode ? '#AAAAAA' : '#666666'))
-        }
-        .width('100%')
-        .height(44)
-        .padding({ left: 16, right: 16 })
-        .borderRadius(10)
-        .backgroundColor(this.floatBtnRotationSpeed === option.value
-          ? (this.isDarkMode ? 'rgba(255,255,255,0.30)' : 'rgba(0,0,0,0.06)')
-          : Color.Transparent)
-        .onClick(() => { this.saveFloatBtnRotationSpeed(option.value); })
-      })
-
-      // 关闭按钮
-      Button('关闭')
-        .width('100%')
-        .height(40)
-        .fontSize(14)
-        .fontWeight(FontWeight.Medium)
-        .backgroundColor(this.isDarkMode ? '#3A3A3C' : '#E8E8E8')
-        .fontColor(this.isDarkMode ? '#FFFFFF' : '#000000')
-        .borderRadius(10)
-        .margin({ top: 16 })
-        .onClick(() => { this.isFloatBtnSpeedSheetShow = false; })
+        MenuItem({
+          content: option.label,
+          labelInfo: this.floatBtnRotationSpeed === option.value ? '当前' : ''
+        })
+          .selectIcon(this.floatBtnRotationSpeed === option.value)
+          .selected(this.floatBtnRotationSpeed === option.value)
+          .onClick(() => {
+            this.isFloatBtnSpeedMenuShow = false;
+            this.saveFloatBtnRotationSpeed(option.value);
+          })
+      }, (option: FloatBtnSpeedOption) => `${option.value}_${option.label}`)
     }
-    .width('100%')
-    .padding({ left: 20, right: 20, bottom: 24 })
   }
 
   // ── 壁纸相关方法 ──
@@ -1932,9 +1900,15 @@ export struct PersonalizationPage {
               this.SettingItemWithToggle($r('app.media.lightbulb'), '关灯切换为隐藏组件', this.lightsOffHideOnly, (isOn: boolean) => {
                 this.saveLightsOffHideOnly(isOn);
               }, 8)
-              this.SettingItemWithPicker($r('app.media.ic_settings_rotation'), '浮窗旋转速度', `${labelByFloatBtnSpeed(this.floatBtnRotationSpeed)}`, () => {
-                this.showFloatBtnSpeedPicker();
-              }, 8)
+              Row() {
+                this.SettingItemWithPicker($r('app.media.ic_settings_rotation'), '浮窗旋转速度', `${labelByFloatBtnSpeed(this.floatBtnRotationSpeed)}`, () => {
+                  this.isFloatBtnSpeedMenuShow = true;
+                }, 8)
+              }
+              .width('100%')
+              .bindMenu(this.isFloatBtnSpeedMenuShow, this.FloatBtnSpeedMenuBuilder(), {
+                onDisappear: () => { this.isFloatBtnSpeedMenuShow = false; }
+              })
 
               // ── 其他 ──
               this.SectionHeader($r('app.media.ic_settings_rotation'), '其他')
