@@ -173,7 +173,7 @@ export struct PersonalizationPage {
   @State pvRefW: number = 0;
   /** ⭐ 小窗尺寸落盘防抖句柄 */
   private sizeSaveTimer_: number = -1;
-  @State isFloatBtnSpeedSheetShow: boolean = false;
+  @State isFloatBtnSpeedMenuShow: boolean = false;
   private canvasCtx: CanvasRenderingContext2D = new CanvasRenderingContext2D();
   private dataPreferences: preferences.Preferences | null = null;
 
@@ -839,7 +839,7 @@ export struct PersonalizationPage {
   }
 
   private showFloatBtnSpeedPicker(): void {
-    this.isFloatBtnSpeedSheetShow = true;
+    this.isFloatBtnSpeedMenuShow = true;
   }
 
   private async saveFloatBtnRotationSpeed(value: number): Promise<void> {
@@ -1980,13 +1980,7 @@ export struct PersonalizationPage {
         .opacity(this.showContent ? 1 : 0)
         .translate({ y: this.showContent ? 0 : 20 })
         .animation({ duration: 300, curve: Curve.EaseOut, delay: 50 })
-        .bindSheet($$this.isFloatBtnSpeedSheetShow, this.FloatBtnSpeedSheetContent(), {
-          height: '50%',
-          dragBar: false,
-          showClose: false,
-          backgroundColor: this.isDarkMode ? '#1C1C1E' : '#F5F5F5',
-          onDisappear: () => { this.isFloatBtnSpeedSheetShow = false; }
-        })
+        
       }
     .width('100%')
     .padding({ left: 20, right: 20, top: 12, bottom: 24 })

@@ -273,7 +273,7 @@ struct Index {
       let storedVideoSegmentBtn = await this.dataPreferences.get('cardStyleVideoSegmentBtn', true) as boolean;
       let storedVideoInteractBtns = await this.dataPreferences.get('cardStyleVideoInteractBtns', true) as boolean;
       let storedVideoNavBtns = await this.dataPreferences.get('cardStyleVideoNavBtns', true) as boolean;
-      let storedVideoCommentAlign = await this.dataPreferences.get('cardStyleVideoCommentAlign', 'center') as string;
+      let storedVideoCommentAlign = await this.dataPreferences.get('cardStyleVideoCommentAlign', 'left') as string;
       let storedVideoBgMode = await this.dataPreferences.get('videoBgMode', 'cover') as string;
       let storedVideoBgColor = await this.dataPreferences.get('videoBgColor', '#007DFF') as string;
       let storedVideoBgCustomWallpaper = await this.dataPreferences.get('videoBgCustomWallpaper', '') as string;

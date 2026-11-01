@@ -31,7 +31,7 @@ export struct ReplyItemComponent {
   @StorageLink('isDarkMode') isDarkMode: boolean = false;
   @StorageLink('cardTransparentStyleVideo') cardTransparentStyleVideo: boolean = false;
   @StorageLink('cardStyleVideoCommentBubble') cardStyleVideoCommentBubble: boolean = true;
-  @StorageLink('cardStyleVideoCommentAlign') commentTextAlign: string = 'center';
+  @StorageLink('cardStyleVideoCommentAlign') commentTextAlign: string = 'left';
   @StorageLink('cardCustomColor') cardCustomColor: string = '';
   @StorageLink('cardBgOpacity') cardBgOpacity: number = 30;
   @StorageLink('customThemeColor') customThemeColor: string = '#007DFF';

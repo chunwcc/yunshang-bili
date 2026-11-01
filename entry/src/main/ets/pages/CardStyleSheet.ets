@@ -34,7 +34,7 @@ export struct CardStyleSheet {
   @StorageLink('cardStyleVideoCommentSection') cardStyleVideoCommentSection: boolean = true;
   @StorageLink('cardStyleVideoCommentBubble') cardStyleVideoCommentBubble: boolean = true;
   /** 评论区文字布局：left=文本左对齐 center=文本居中 */
-  @StorageLink('cardStyleVideoCommentAlign') cardStyleVideoCommentAlign: string = 'center';
+  @StorageLink('cardStyleVideoCommentAlign') cardStyleVideoCommentAlign: string = 'left';
   @StorageLink('cardStyleVideoDescription') cardStyleVideoDescription: boolean = true;
   @StorageLink('cardStyleVideoSegmentBtn') cardStyleVideoSegmentBtn: boolean = true;
   @StorageLink('cardStyleVideoInteractBtns') cardStyleVideoInteractBtns: boolean = true;

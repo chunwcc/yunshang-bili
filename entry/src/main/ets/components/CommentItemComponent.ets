@@ -62,7 +62,7 @@ export struct CommentItemComponent {
   @StorageLink('cardTransparentStyle') cardTransparentStyle: boolean = false;
   @StorageLink('cardTransparentStyleVideo') cardTransparentStyleVideo: boolean = false;
   @StorageLink('cardStyleVideoCommentBubble') cardStyleVideoCommentBubble: boolean = true;
-  @StorageLink('cardStyleVideoCommentAlign') commentTextAlign: string = 'center';
+  @StorageLink('cardStyleVideoCommentAlign') commentTextAlign: string = 'left';
   @StorageLink('cardBorderFollowTheme') cardBorderFollowTheme: boolean = false;
   @StorageLink('cardBorderOpacity') cardBorderOpacity: number = 40;
   @StorageLink('cardBgOpacity') cardBgOpacity: number = 30;
