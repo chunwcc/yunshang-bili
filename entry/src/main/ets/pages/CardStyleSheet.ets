@@ -2634,7 +2634,7 @@ export struct CardStyleSheet {
           if (this.cardStyleVideoDetail) {
             Column() {
               Text('【4K】HarmonyOS 应用开发入门教程')
-                .fontSize(13).fontColor(Color.White).fontWeight(FontWeight.Bold)
+                .fontSize(13).fontColor(this.isDarkMode ? Color.White : '#000000').fontWeight(FontWeight.Bold)
                 .maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
                 .width('100%').margin({ bottom: this.cardMargin })
 
@@ -2642,7 +2642,7 @@ export struct CardStyleSheet {
                 Circle().width(24).height(24).fill('#FB7299')
                 Column() {
                   Text('UP主名称').fontSize(11).fontColor('#FB7299').maxLines(1)
-                  Text('50万播放 · 1.2万弹幕').fontSize(10).fontColor(Color.White).opacity(0.6)
+                  Text('50万播放 · 1.2万弹幕').fontSize(10).fontColor(this.isDarkMode ? Color.White : '#333333').opacity(0.6)
                 }
                 .margin({ left: 6 })
                 .alignItems(HorizontalAlign.Start)
@@ -2652,7 +2652,7 @@ export struct CardStyleSheet {
 
               if (this.cardStyleVideoDescription) {
                 Text('这是视频简介内容，展示了简介卡片的显示效果。HarmonyOS 是基于 OpenHarmony 开发的面向全场景的操作系统。')
-                  .fontSize(10).fontColor(Color.White).opacity(0.7)
+                  .fontSize(10).fontColor(this.isDarkMode ? 'rgba(255,255,255,0.7)' : '#666666')
                   .maxLines(3).textOverflow({ overflow: TextOverflow.Ellipsis })
                   .width('100%')
               }
@@ -2668,7 +2668,7 @@ export struct CardStyleSheet {
           if (this.cardStyleVideoCommentSection) {
             Column() {
               Row() {
-                Text('评论').fontSize(12).fontColor(Color.White).fontWeight(FontWeight.Medium)
+                Text('评论').fontSize(12).fontColor(this.isDarkMode ? Color.White : '#000000').fontWeight(FontWeight.Medium)
                 Blank()
                 Text('最热').fontSize(10).fontColor(this.customThemeColor)
               }
@@ -2733,7 +2733,7 @@ export struct CardStyleSheet {
       Circle().width(24).height(24).fill(this.isDarkMode ? '#555555' : '#CCCCCC')
       Column() {
         Text(name).fontSize(11).fontColor('#FB7299').maxLines(1)
-        Text(text).fontSize(11).fontColor(Color.White).opacity(0.8).maxLines(2)
+        Text(text).fontSize(11).fontColor(this.isDarkMode ? 'rgba(255,255,255,0.8)' : Color.Black).maxLines(2)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
       }
       .margin({ left: 8 })

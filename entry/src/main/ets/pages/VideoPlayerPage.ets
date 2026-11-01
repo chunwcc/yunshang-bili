@@ -16,6 +16,7 @@ import { common, ConfigurationConstant } from '@kit.AbilityKit';
 import deviceInfo from '@ohos.deviceInfo';
 import { StatusBarUtils } from '../utils/StatusBarUtils';
 import { applyCardStyleModeArchive } from '../utils/CardStyleMode';
+import { applyWallpaperMode, persistWallpaperMode } from '../utils/WallpaperTheme';
 import AVCastPicker from '@ohos.multimedia.avCastPicker';
 import { AVCastPickerState } from '@ohos.multimedia.avCastPickerParam';
 import { motion } from '@kit.MultimodalAwarenessKit';
@@ -1618,9 +1619,17 @@ struct VideoPlayerPage {
     // 持久化到 Preferences
     try {
       const ctx = this.getUIContext().getHostContext() as common.Context;
+      const oldMode = !newMode;
       preferences.getPreferences(ctx, 'my_app_settings').then((pref) => {
         pref.put('isDarkMode', newMode).then(() => {
           pref.flush();
+        });
+        // ★ 壁纸「深浅色独立」：先把当前激活壁纸归档进旧模式存档，再装载新模式存档到激活键
+        // （与 ProfilePage.onDarkModeChange / CardStyleSheet.switchDarkMode 对齐）。
+        // 缺了这一步，播放页切深浅后首页壁纸层仍停留在旧模式，直到打开「个性化」——
+        // 它的 aboutToAppear → loadWallpaperModes → applyWallpaperMode 会补装载，才"突然变了"。
+        persistWallpaperMode(oldMode, pref).then(() => {
+          applyWallpaperMode(newMode);
         });
         // 卡片样式「深浅色独立」：装载新模式档案（播放页背景已入档，此处装载后立即生效）
         if (AppStorage.get<boolean>('cardStylePerMode') === true) {
