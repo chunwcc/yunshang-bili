@@ -345,15 +345,6 @@ struct DynamicDetailPage {
    */
   private entrySheetOpts(): SheetOptions {
     const o: SheetOptions = {
-      // ⭐⭐ 必须显式钉 BOTTOM（2026-10-18 真机实测）：**横屏时 `preferType` 的默认值不是 BOTTOM**，
-      //    系统按"宽屏设备"自动选 `SheetType.CENTER` ⇒ 常驻输入条跑到**屏幕正中间**（竖屏正常、
-      //    一横屏就居中，用户报的就是这个）。实测证据（横屏 2120x1320，`uitest dumpLayout`）：
-      //    `SheetPage [448,563][1672,756]` —— 宽 1224px 居中、竖直方向 563~756 正好在屏幕中部。
-      //    钉成 BOTTOM 后横竖屏都贴底，与页内通道（Column + Blank + End）位置一致。
-      preferType: SheetType.BOTTOM,
-      // ⭐ 宽度必须显式给 100%：钉成 BOTTOM 后**横屏默认宽度仍不是全宽**（实测 1224px / 612vp，
-      //    左右各空 448px），与页内通道（全宽 2120px）不一致；竖屏默认本来就是全宽，给 100% 零变化。
-      width: '100%',
       // 高度随内容长高：表情面板展开时 sheet 跟着长（与发弹幕同一机制）
       height: SheetSize.FIT_CONTENT,
       // 材质层在 backgroundColor 之下 ⇒ 不透明底会把玻璃整层盖住（硬要求①）
@@ -1048,6 +1039,7 @@ struct DynamicDetailPage {
         }
       })
         .margin({ top: 12 })
+        .width('100%')
 
       // 统计行（与动态页同款：视频卡内部已含播放/弹幕/点赞，故仅非视频卡显示）
       if (!it.video) {
@@ -1084,6 +1076,7 @@ struct DynamicDetailPage {
       }
     }
     .width('100%')
+    .alignItems(HorizontalAlign.Start)
     .padding(12)
     // 圆角跟随"卡片样式"设置（与动态页 cardListBorderRadius 同一个值，两页才一致）
     .borderRadius(this.cardListBorderRadius)

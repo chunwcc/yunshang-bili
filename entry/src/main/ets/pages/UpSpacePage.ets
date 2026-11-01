@@ -1,6 +1,6 @@
 // UpSpacePage.ets — UP主个人空间页
-import { router, mediaquery, display, window, SegmentButton, SegmentButtonOptions } from '@kit.ArkUI';
-import { hdsMaterial, HdsTabs } from '@kit.UIDesignKit';
+import { router, mediaquery, display, window, SegmentButton, SegmentButtonOptions, LengthMetrics } from '@kit.ArkUI';
+import { hdsMaterial, HdsTabs, HdsNavDestination, ScrollEffectType } from '@kit.UIDesignKit';
 import { logInfo, logWarn, logError, errMsg } from '../utils/Logger';
 import { common } from '@kit.AbilityKit';
 import { pasteboard } from '@kit.BasicServicesKit';
@@ -302,11 +302,11 @@ struct UpSpacePage {
       this.tabOpt = SegmentButtonOptions.capsule({
         buttons: [{ text: '投稿' }, { text: '动态' }],
         fontColor: '#999999',
-        selectedFontColor: accent,
+        selectedFontColor: '#FFFFFF',
         fontWeight: FontWeight.Normal,
         selectedFontWeight: FontWeight.Medium,
         backgroundColor: Color.Transparent,
-        selectedBackgroundColor: selBg,
+        selectedBackgroundColor: accent,
         fontSize: narrow ? 12 : 13,
         selectedFontSize: narrow ? 12 : 13,
         // 按钮内边距左右 12：防"投稿/动态"出省略号；上下 5 配合内容高 34
@@ -315,11 +315,11 @@ struct UpSpacePage {
       this.sortOpt = SegmentButtonOptions.capsule({
         buttons: [{ text: '最新' }, { text: '播放' }, { text: '收藏' }],
         fontColor: '#999999',
-        selectedFontColor: accent,
+        selectedFontColor: '#FFFFFF',
         fontWeight: FontWeight.Normal,
         selectedFontWeight: FontWeight.Medium,
         backgroundColor: Color.Transparent,
-        selectedBackgroundColor: selBg,
+        selectedBackgroundColor: accent,
         fontSize: narrow ? 11 : 12,
         selectedFontSize: narrow ? 11 : 12,
         buttonPadding: narrow ? { top: 4, right: 11, bottom: 4, left: 11 } : { top: 5, right: 12, bottom: 5, left: 12 },
@@ -659,6 +659,7 @@ struct UpSpacePage {
   }
 
   build() {
+    HdsNavDestination() {
     Stack() {
       // ── 背景层：全局壁纸（默认壁纸分深/浅模式；与搜索页等其余页面同款三分支）──
       if (this.wallpaper === 'builtin') {
@@ -735,7 +736,7 @@ struct UpSpacePage {
         // ── 吸顶节标题替身（滚过页眉后出现；无遮罩无底边线；透传触摸给下方列表）──
         if (this.activeTab === 'video' ? this.videoSticky : this.dynSticky) {
           Column() {
-            Row() {}.width('100%').height(this.statusBarHeight + 6)
+            Row() {}.width('100%').height(this.statusBarHeight + 56 + 16)
             // 顶 0：与列表内行（无上下 padding）像素级对位，交换无缝
             this.sectionRow(0, this.cardListMargin)
           }
@@ -763,7 +764,52 @@ struct UpSpacePage {
   .width('100%').height('100%')
   .backgroundColor(Color.Transparent)
   .alignContent(Alignment.TopStart);
-}
+    }
+    .hideBackButton(false)
+    .onBackPressed(() => {
+      this.goBack();
+      return true;
+    })
+    .backgroundColor('transparent')
+    .titleBar({
+      avoidLayoutSafeArea: true,
+      padding: { start: LengthMetrics.vp(16), end: LengthMetrics.vp(16) },
+      style: {
+        scrollEffectOpts: {
+          enableScrollEffect: true,
+          scrollEffectType: ScrollEffectType.GRADIENT_BLUR
+        },
+        systemMaterialEffect: {
+          materialType: hdsMaterial.MaterialType.IMMERSIVE,
+          materialLevel: hdsMaterial.MaterialLevel.EXQUISITE
+        },
+        originalStyle: {
+          backgroundStyle: { backgroundColor: 'transparent' },
+          contentStyle: {
+            titleStyle: {
+              mainTitleColor: this.isDarkMode ? '#FFFFFF' : '#000000'
+            }
+          }
+        },
+        scrollEffectStyle: {
+          backgroundStyle: { backgroundColor: 'transparent' },
+          contentStyle: {
+            titleStyle: {
+              mainTitleColor: this.isDarkMode ? '#FFFFFF' : '#000000'
+            }
+          }
+        }
+      },
+      content: {
+        title: { mainTitle: '个人空间' },
+        backIcon: {
+          action: () => {
+            this.goBack();
+          }
+        }
+      }
+    })
+  }
 
   /**
    * A1 页眉（竖屏，随列表滚走）：mono 标签 + 头像/衬线名/认证/LV + 签名 + 数据条 + 全宽关注条
@@ -891,7 +937,7 @@ struct UpSpacePage {
       .width('100%')
       .padding({ left: 16, right: 16, top: 14, bottom: 16 })
       .backgroundColor(this.getCardItemBg())
-      .borderRadius(this.cardListBorderRadius)
+      .borderRadius(15)
       .border({ width: this.cardBorderWidth, color: this.getCardItemBorder() })
       .shadow({ radius: 4, color: '#10000000', offsetX: 0, offsetY: 2 })
     }
@@ -1005,6 +1051,9 @@ struct UpSpacePage {
           materialLevel: hdsMaterial.MaterialLevel.ADAPTIVE
         }
       })
+      .scrollable(false)
+      .animationDuration(0)
+      .backgroundColor(Color.Transparent)
       .clip(false)
 
       Blank()
@@ -1028,6 +1077,9 @@ struct UpSpacePage {
             materialLevel: hdsMaterial.MaterialLevel.ADAPTIVE
           }
         })
+        .scrollable(false)
+        .animationDuration(0)
+        .backgroundColor(Color.Transparent)
         .clip(false)
       }
     }
@@ -1040,14 +1092,14 @@ struct UpSpacePage {
    *  ⚠️ 高度显式 44（不是 '100%'）：条内系统 ~3vp 内缩在底部，写满会整体上浮（"选中胶囊靠上"根因） */
   @Builder
   segTabContent() {
-    Stack() {
+    Stack({ alignContent: Alignment.Center }) {
       SegmentButton({
         options: this.tabOpt,
         selectedIndexes: $tabSelIdx,
         onItemClicked: (idx: number) => { this.switchTab(idx === 0 ? 'video' : 'dynamic'); }
       })
         .width('100%')
-        .height(34)
+        .height('100%')
     }
     .width('100%')
     .height('100%')
@@ -1056,14 +1108,14 @@ struct UpSpacePage {
   /** 排序 玻璃胶囊内容（同上） */
   @Builder
   segSortContent() {
-    Stack() {
+    Stack({ alignContent: Alignment.Center }) {
       SegmentButton({
         options: this.sortOpt,
         selectedIndexes: $sortSelIdx,
         onItemClicked: (idx: number) => { this.switchOrder(ORDER_OPTIONS[idx].key); }
       })
         .width('100%')
-        .height(34)
+        .height('100%')
     }
     .width('100%')
     .height('100%')
@@ -1182,7 +1234,7 @@ struct UpSpacePage {
         .alignItems(HorizontalAlign.Start)
         .padding(16)
         .backgroundColor(this.getCardItemBg())
-        .borderRadius(this.cardListBorderRadius)
+        .borderRadius(15)
         .border({ width: this.cardBorderWidth, color: this.getCardItemBorder() })
         .shadow({ radius: 4, color: '#10000000', offsetX: 0, offsetY: 2 })
         // ⭐ 上下自适应：至少撑满 rail 可用高度（内容超出时随内容增长、Scroll 兜底滚动）
@@ -1196,7 +1248,7 @@ struct UpSpacePage {
     .height('100%')
     .alignItems(HorizontalAlign.Start)
     // 右侧 padding 给 0：与内容区间的缝由内容列自己的左 padding（= cardListMargin）提供，避免双倍间距
-    .padding({ left: this.cardListMargin, right: 0, top: this.statusBarHeight + this.cardListMargin, bottom: this.cardListMargin })
+    .padding({ left: this.cardListMargin, right: 0, top: this.statusBarHeight + 56 + this.cardListMargin, bottom: this.cardListMargin })
   }
 
   /** A1 横屏 rail 纵列数据行（点击行为与竖屏 statCell 一致） */
@@ -1353,9 +1405,9 @@ struct UpSpacePage {
   videoListPortrait() {
     Refresh({ refreshing: $$this.isRefreshing, builder: this.customRefreshComponent() }) {
       List({ space: this.cardListMargin, scroller: this.videoScroller }) {
-        // 顶部占位 = 状态栏高：列表全高（视口顶=屏幕顶），页眉卡初始位置不变，内容可滑到屏幕顶才裁切
+        // 顶部占位 = 状态栏高 + TitleBar 高度(56)：避让标题栏与返回按钮，内容可滑到屏幕顶才裁切
         ListItem() {
-          Column().width('100%').height(this.statusBarHeight)
+          Column().width('100%').height(this.statusBarHeight + 56)
         }
         // A1 页眉（随列表滚走）
         ListItem() {
@@ -1436,7 +1488,7 @@ struct UpSpacePage {
       .onDidScroll((_offset: number, _state: ScrollState) => {
         // 顶 spacer 0 + 两行距 2×cardListMargin − 吸顶条顶距 6
         const y = this.videoScroller.currentOffset().yOffset;
-        const sticky = y > this.headerH + 2 * this.cardListMargin - 6;
+        const sticky = y > this.headerH + 2 * this.cardListMargin - 16;
         if (sticky !== this.videoSticky) {
           this.videoSticky = sticky;
         }
@@ -1455,7 +1507,7 @@ struct UpSpacePage {
         // 顶部占位 = 固定分段条高度（条高 m+胶囊+m，再让掉 List space）：列表全高，首排卡初始位置在条下方，内容可滑到屏幕顶
         ListItem() {
           Column().width('100%')
-            .height(this.statusBarHeight + this.cardListMargin + (this.secRowH > 0 ? this.secRowH : 36))
+            .height(this.statusBarHeight + 56 + this.cardListMargin + (this.secRowH > 0 ? this.secRowH : 36))
         }
         if (!this.isListLoaded) {
           ForEach([0, 1], (_row: number) => {
@@ -1532,7 +1584,7 @@ struct UpSpacePage {
   dynVideoCard(item: SpaceDynamicItem) {
     Column() {
       if (item.text) {
-        this.dynTextSegmentsBuilder(item, true, 12)
+        this.dynTextSegmentsBuilder(item, false, 12)
       }
       if (item.video) {
         Column() {
@@ -1636,7 +1688,7 @@ struct UpSpacePage {
   dynDrawCard(item: SpaceDynamicItem) {
     Column() {
       if (item.text) {
-        this.dynTextSegmentsBuilder(item, true, 12)
+        this.dynTextSegmentsBuilder(item, false, 12)
       }
       if (item.images.length === 1) {
         // ⭐ 单图：普通图原比例完整显示；超长图（高/宽 > 16:9）用 3:4 竖版 + 顶部对齐 + 底部「长图」胶囊
@@ -2015,7 +2067,7 @@ struct UpSpacePage {
   dynPgcCard(item: SpaceDynamicItem) {
     Column() {
       if (item.text) {
-        this.dynTextSegmentsBuilder(item, true, 8)
+        this.dynTextSegmentsBuilder(item, false, 8)
       }
       if (this.pgcCoverOf(item) || this.pgcTitleOf(item)) {
         // ---- 横版封面（16:9，动态页卡片统一横版比例）----
@@ -2387,9 +2439,9 @@ struct UpSpacePage {
     Refresh({ refreshing: $$this.isRefreshing, builder: this.customRefreshComponent() }) {
       List({ space: this.cardListMargin, scroller: this.dynScroller }) {
         if (!this.isLandscape) {
-          // 顶部占位 = 状态栏高：列表全高，页眉卡初始位置不变，内容可滑到屏幕顶才裁切
+          // 顶部占位 = 状态栏高 + TitleBar 高度(56)：避让标题栏与返回按钮，内容可滑到屏幕顶才裁切
           ListItem() {
-            Column().width('100%').height(this.statusBarHeight)
+            Column().width('100%').height(this.statusBarHeight + 56)
           }
           // A1 页眉（随列表滚走）
           ListItem() {
@@ -2417,7 +2469,7 @@ struct UpSpacePage {
           // 横屏：顶部占位 = 固定分段条高度（列表全高，首排卡初始位置在条下方）
           ListItem() {
             Column().width('100%')
-              .height(this.statusBarHeight + this.cardListMargin + (this.secRowH > 0 ? this.secRowH : 36))
+              .height(this.statusBarHeight + 56 + this.cardListMargin + (this.secRowH > 0 ? this.secRowH : 36))
           }
         }
         if (!this.isDynLoaded) {
@@ -2461,7 +2513,7 @@ struct UpSpacePage {
           return;
         }
         const y = this.dynScroller.currentOffset().yOffset;
-        const sticky = y > this.headerH + 2 * this.cardListMargin - 6;
+        const sticky = y > this.headerH + 2 * this.cardListMargin - 16;
         if (sticky !== this.dynSticky) {
           this.dynSticky = sticky;
         }

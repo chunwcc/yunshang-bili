@@ -108,7 +108,7 @@ export struct DynamicCardBody {
   dynVideoCard(item: SpaceDynamicItem) {
     Column() {
       if (item.text) {
-        this.dynTextSegmentsBuilder(item, true, 12)
+        this.dynTextSegmentsBuilder(item, false, 12)
       }
       if (item.video) {
         Column() {
@@ -406,7 +406,7 @@ export struct DynamicCardBody {
   dynDrawCard(item: SpaceDynamicItem) {
     Column() {
       if (item.text) {
-        this.dynTextSegmentsBuilder(item, true, 12)
+        this.dynTextSegmentsBuilder(item, false, 12)
       }
       if (item.images.length === 1) {
         // ⭐ 单图：普通图原比例完整显示；超长图（高/宽 > 16:9）用 3:4 竖版 + 顶部对齐 + 底部「长图」胶囊。
@@ -546,7 +546,7 @@ export struct DynamicCardBody {
   dynPgcCard(item: SpaceDynamicItem) {
     Column() {
       if (item.text) {
-        this.dynTextSegmentsBuilder(item, true, 8)
+        this.dynTextSegmentsBuilder(item, false, 8)
       }
       if (this.pgcCoverOf(item) || this.pgcTitleOf(item)) {
         // ---- 横版封面（16:9，动态页卡片统一横版比例）----
