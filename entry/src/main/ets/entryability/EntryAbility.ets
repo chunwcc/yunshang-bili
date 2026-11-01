@@ -8,7 +8,7 @@
  * 3. 播放状态变化时 → FormUtils.updatePlayControlCards() 批量推送
  * 4. AppStorage 共享播放状态（供卡片 call 响应时读取）
  */
-import { AbilityConstant, UIAbility, Want } from '@kit.AbilityKit';
+import { AbilityConstant, Configuration, ConfigurationConstant, UIAbility, Want } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window, router } from '@kit.ArkUI';
 import { preferences } from '@kit.ArkData';
@@ -22,6 +22,8 @@ import { errMsg } from '../utils/Logger';
 import { setErrorLogContext, appendErrorLog } from '../utils/ErrorLogCollector';
 import { BiliLinkParser, BiliLinkResult } from '../utils/BiliLinkParser';
 import errorManager from '@ohos.app.ability.errorManager';
+import { ThemePersist, ColorModePref } from '../controller/ThemePersist';
+import { setAutoColorMode, setDarkColorMode, setLightColorMode } from '../controller/ThemeController';
 
 const DOMAIN = 0x0000;
 const TAG = 'EntryAbility';
@@ -86,9 +88,42 @@ export default class EntryAbility extends UIAbility {
     this.registerCalleeHandlers();
     PersistentStorage.persistProp('statusBarHeight', 40);
 
+    // 仿照 Hivid: 启动即刻初始化色彩模式，首帧渲染前生效
+    ThemePersist.init(this.context);
+    const themeMode: ColorModePref = ThemePersist.load();
+    if (themeMode === 'COLOR_MODE_DARK') {
+      setDarkColorMode(this.context);
+      AppStorage.setOrCreate('isDarkMode', true);
+    } else if (themeMode === 'COLOR_MODE_LIGHT') {
+      setLightColorMode(this.context);
+      AppStorage.setOrCreate('isDarkMode', false);
+    } else {
+      try {
+        const pref = preferences.getPreferencesSync(this.context, { name: 'my_app_settings' });
+        const oldDark = pref.getSync('isDarkMode', false) as boolean;
+        if (oldDark) {
+          setDarkColorMode(this.context);
+          ThemePersist.save('COLOR_MODE_DARK');
+          AppStorage.setOrCreate('isDarkMode', true);
+        } else {
+          setAutoColorMode(this.context);
+        }
+      } catch (_e) {
+        setAutoColorMode(this.context);
+      }
+    }
+
     if (want.uri && want.uri.length > 0) {
       this.pendingUri = want.uri;
       hilog.info(DOMAIN, TAG, 'onCreate received deep link: %{public}s', want.uri);
+    }
+  }
+
+  onConfigurationUpdate(newConfig: Configuration): void {
+    const mode = ThemePersist.load();
+    if (mode === 'COLOR_MODE_NOT_SET' && newConfig.colorMode !== undefined) {
+      const isDark = newConfig.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK;
+      AppStorage.setOrCreate('isDarkMode', isDark);
     }
   }
 
