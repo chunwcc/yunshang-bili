@@ -9855,6 +9855,11 @@ struct VideoPlayerPage {
         .onLoad(this.onXCPreview)
         .width(this.shortCardW())
         .height(this.shortNeighborH(1))
+        // ⭐ 预览 SURFACE 永不响应触摸：这层常驻挂载（opacity 0 保 surface 可 onLoad），
+        //    且宽=全屏宽、高≈屏高、z 序在主播放层之上 —— 若不显式 None，它会以"最顶层的
+        //    原生响应节点"身份截走视频区所有点击（onVT 不触发 → 点击无反应）。
+        //    外层 Stack 的 None 只豁免自身、拦不住子节点，必须挂在 XComponent 本体上。
+        .hitTestBehavior(HitTestMode.None)
         .borderRadius(24)
         .clip(true)
         .backgroundColor(Color.Black)
