@@ -119,6 +119,82 @@
     {
       "name": "live_quality_text_unselected",
       "value": "#666666"
+    },
+    {
+      "name": "card_background",
+      "value": "#FFFFFF"
+    },
+    {
+      "name": "page_background",
+      "value": "#F1F2F6"
+    },
+    {
+      "name": "page_background_half",
+      "value": "#80F1F2F6"
+    },
+    {
+      "name": "text_primary",
+      "value": "#000000"
+    },
+    {
+      "name": "text_secondary",
+      "value": "#3C3C43"
+    },
+    {
+      "name": "text_tertiary",
+      "value": "#8E8E93"
+    },
+    {
+      "name": "divider",
+      "value": "#E0E0E0"
+    },
+    {
+      "name": "divider_color",
+      "value": "#E0E0E0"
+    },
+    {
+      "name": "background_primary",
+      "value": "#FFFFFF"
+    },
+    {
+      "name": "background_secondary",
+      "value": "#FFFFFF"
+    },
+    {
+      "name": "background_card",
+      "value": "#FFFFFF"
+    },
+    {
+      "name": "background_elevated",
+      "value": "#F2F2F7"
+    },
+    {
+      "name": "border_color",
+      "value": "#E0E0E0"
+    },
+    {
+      "name": "shadow_color",
+      "value": "#1A000000"
+    },
+    {
+      "name": "accent",
+      "value": "#007DFF"
+    },
+    {
+      "name": "tab_unselected",
+      "value": "#8E8E93"
+    },
+    {
+      "name": "tab_selected",
+      "value": "#007DFF"
+    },
+    {
+      "name": "input_background",
+      "value": "#F2F2F7"
+    },
+    {
+      "name": "input_text",
+      "value": "#000000"
     }
   ]
 }
