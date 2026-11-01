@@ -1,18 +1,25 @@
-﻿// ProfilePage.ets - 显示壁纸 + 消除白边（透明背景 + expandSafeArea）
+// ProfilePage.ets - 显示壁纸 + 消除白边（透明背景 + expandSafeArea）
 import { common, ConfigurationConstant } from '@kit.AbilityKit';
 import { logInfo, logWarn, logError } from '../utils/Logger';
-import { hdsMaterial } from '@kit.UIDesignKit';
+import {
+  hdsMaterial,
+  HdsNavigation,
+  HdsNavigationTitleMode,
+  IconStyleMode,
+  ScrollEffectType
+} from '@kit.UIDesignKit';
 import { VibrateUtils } from '../utils/VibrateUtils';
 import { StatusBarUtils } from '../utils/StatusBarUtils';
 import { applyWallpaperMode, loadWallpaperModes, persistWallpaperMode } from '../utils/WallpaperTheme';
-import { applyCardStyleModeArchive } from '../utils/CardStyleMode';
 import { preferences } from '@kit.ArkData';
 import { PersonalizationPage } from './PersonalizationPage';
 import { AppScaleService, SCALE_MODE_SYSTEM, SCALE_MODE_CUSTOM } from '../services/AppScaleService';
-import { window } from '@kit.ArkUI';
+import { LengthMetrics, window } from '@kit.ArkUI';
 import { CardStyleSheet } from './CardStyleSheet';
 import { getUserInfo, UserInfo } from '../api/BilibiliApi';
 import { HdsMiniBarButton } from '../components/infra/HdsMiniBarButton';
+import { setDarkColorMode, setLightColorMode } from '../controller/ThemeController';
+import { ThemePersist } from '../controller/ThemePersist';
 
 PersistentStorage.persistProp('phoneLayoutToggle', false)
 
@@ -118,11 +125,6 @@ export struct ProfilePage {
   @StorageLink('shrinkVideoOnScroll') shrinkVideoOnScroll: boolean = false;
   // ⭐ 消息页 Tab 自动隐藏（默认关闭）
   @StorageLink('msgTabAutoHide') msgTabAutoHide: boolean = false;
-  // ⭐ 回桌面自动画中画（默认开启，播放页武装/解除共用此持久化 key）
-  @StorageLink('autoPip') autoPip: boolean = true;
-  // ⭐ 一级 Tab 显隐（默认显示）— 隐藏后底栏图标与页面一起消失
-  @StorageLink('showDynamicsTab') showDynamicsTab: boolean = true;
-  @StorageLink('showWhisperTab') showWhisperTab: boolean = true;
   // ⭐ 动态页点击切换分类（默认打开）
   @StorageLink('dynFilterTapOnly') dynFilterTapOnly: boolean = true;
   // ⭐ 首页点击切换分类（默认关闭）
@@ -143,6 +145,9 @@ export struct ProfilePage {
   @StorageLink('recommendApiSource') recommendApiSource: string = 'App';
   @StorageLink('danmakuApiSource') danmakuApiSource: string = 'grpc';
   @State qualityLabel: string = labelByQn(DEFAULT_QN);
+  @State isQualityMenuShow: boolean = false;
+  @State isRecommendMenuShow: boolean = false;
+  @State isDanmakuMenuShow: boolean = false;
   @StorageProp('refreshHomeFlag') @Watch('onLoginStateChanged') refreshHomeFlag: number = 0;
 
   /** UI 状态：直接用 @State 驱动渲染，避免 getter 不被重新求值的问题 */
@@ -358,25 +363,44 @@ export struct ProfilePage {
 
   private async onDarkModeChange(isOn: boolean): Promise<void> {
     // 切换前：把当前激活壁纸归档到旧模式存档（若已由设置页持久化则幂等）
-    if (this.dataPreferences) {
-      await persistWallpaperMode(this.isDarkMode, this.dataPreferences);
+    try {
+      if (this.dataPreferences) {
+        await persistWallpaperMode(this.isDarkMode, this.dataPreferences);
+      }
+    } catch (e) {
+      logWarn(`[onDarkModeChange] persistWallpaperMode error: ${e}`);
     }
+
     this.isDarkMode = isOn;
     AppStorage.set('isDarkMode', isOn);
-    // 卡片样式「深浅色独立」：切模式后装载另一模式档案
-    // （对齐 CardStyleSheet.switchDarkMode；savePrefs 每次改动都归档，激活值与档案同步，直接装载即可）
-    if (this.dataPreferences && AppStorage.get<boolean>('cardStylePerMode') === true) {
-      await applyCardStyleModeArchive(this.dataPreferences, isOn);
-    }
+
     // 切换后：装载新模式对应的壁纸到激活键（消费页自动生效）
-    applyWallpaperMode(isOn);
+    try {
+      applyWallpaperMode(isOn);
+    } catch (e) {
+      logWarn(`[onDarkModeChange] applyWallpaperMode error: ${e}`);
+    }
+
     const uiContext = this.getUIContext().getHostContext() as common.UIAbilityContext;
-    // 同步系统级色彩模式，让 HDS组件（HdsNavigation 返回图标、菜单图标等）自动适配
-    uiContext.getApplicationContext().setColorMode(
-      isOn ? ConfigurationConstant.ColorMode.COLOR_MODE_DARK : ConfigurationConstant.ColorMode.COLOR_MODE_LIGHT
-    );
-    await StatusBarUtils.updateStatusBarColor(uiContext, isOn);
-    await this.saveSettings();
+    // 同步系统级色彩模式，让 HDS组件与资源文件（$r('app.color.*')）自动适配
+    try {
+      if (isOn) {
+        setDarkColorMode(uiContext);
+        ThemePersist.save('COLOR_MODE_DARK');
+      } else {
+        setLightColorMode(uiContext);
+        ThemePersist.save('COLOR_MODE_LIGHT');
+      }
+      await StatusBarUtils.updateStatusBarColor(uiContext, isOn);
+    } catch (e) {
+      logWarn(`[onDarkModeChange] setColorMode error: ${e}`);
+    }
+
+    try {
+      await this.saveSettings();
+    } catch (e) {
+      logWarn(`[onDarkModeChange] saveSettings error: ${e}`);
+    }
 
     // 震动反馈
     try {
@@ -463,7 +487,60 @@ export struct ProfilePage {
 
   @Builder
   PersonalizationSheetContent() {
-    PersonalizationPage({ onClose: () => { this.isPersonalizationSheetShow = false; } })
+    HdsNavigation() {
+      PersonalizationPage({ onClose: () => { this.isPersonalizationSheetShow = false; } })
+    }
+    .titleMode(HdsNavigationTitleMode.MODAL)
+    .titleBar({
+      padding: { start: LengthMetrics.vp(16), end: LengthMetrics.vp(16) },
+      style: {
+        scrollEffectOpts: {
+          enableScrollEffect: true,
+          scrollEffectType: ScrollEffectType.IMMERSIVE_GRADIENT_BLUR,
+          blurEffectiveStartOffset: LengthMetrics.vp(0),
+          blurEffectiveEndOffset: LengthMetrics.vp(20)
+        },
+        systemMaterialEffect: {
+          materialType: hdsMaterial.MaterialType.ADAPTIVE,
+          materialLevel: hdsMaterial.MaterialLevel.EXQUISITE
+        },
+        originalStyle: {
+          backgroundStyle: { backgroundColor: 'transparent' },
+          contentStyle: {
+            titleStyle: { mainTitleColor: $r('sys.color.font_primary'), subTitleColor: $r('sys.color.font_secondary') },
+            menuStyle: { backgroundColor: $r('sys.color.comp_background_tertiary'), iconColor: $r('sys.color.icon_primary') },
+            backIconStyle: { backgroundColor: $r('sys.color.comp_background_tertiary'), iconColor: $r('sys.color.icon_primary') }
+          }
+        },
+        scrollEffectStyle: {
+          backgroundStyle: { backgroundColor: 'transparent' },
+          contentStyle: {
+            titleStyle: { mainTitleColor: $r('sys.color.font_primary'), subTitleColor: $r('sys.color.font_secondary') },
+            menuStyle: { backgroundColor: $r('sys.color.comp_background_tertiary'), iconColor: $r('sys.color.icon_primary') },
+            backIconStyle: { backgroundColor: $r('sys.color.comp_background_tertiary'), iconColor: $r('sys.color.icon_primary') }
+          }
+        }
+      },
+      content: {
+        title: {
+          mainTitle: '个性化'
+        },
+        menu: {
+          value: [
+            {
+              content: {
+                label: 'modal_cancel',
+                isEnabled: true,
+                type: IconStyleMode.SMALL,
+                action: (): void => {
+                  this.isPersonalizationSheetShow = false;
+                }
+              }
+            }
+          ]
+        }
+      }
+    })
   }
 
   // ── 应用比例调节 ──
@@ -662,152 +739,244 @@ export struct ProfilePage {
 
   @Builder
   AppScaleSheetContent() {
-    Column() {
-      Row() {
-        Text('应用比例调节')
-          .fontSize(18)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(this.isDarkMode ? '#FFFFFF' : '#000000')
-        Blank()
-      }
-      .width('100%')
-      .margin({ top: 4, bottom: 18 })
-
-      // 开关行
-      Row() {
-        Column() {
-          Text('自定义比例')
-            .fontSize(15)
-            .fontColor(this.isDarkMode ? '#FFFFFF' : '#000000')
-            .fontWeight(FontWeight.Medium)
-          Text('关闭=跟随系统字体大小与界面缩放')
-            .fontSize(11)
-            .fontColor(this.isDarkMode ? '#AAAAAA' : '#888888')
-            .margin({ top: 4 })
-        }
-        .alignItems(HorizontalAlign.Start)
-        .layoutWeight(1)
-        Toggle({ type: ToggleType.Switch, isOn: this.appScaleMode === SCALE_MODE_CUSTOM })
-          .selectedColor(this.customThemeColor)
-          .switchPointColor(Color.White)
-          .scale({ x: 0.85, y: 0.85 })
-          .onChange((value: boolean) => { this.toggleAppScale(value); })
-      }
-      .width('100%')
-      .height(62)
-      .padding({ left: 14, right: 14 })
-      .backgroundColor(this.isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.70)')
-      .borderRadius(20)
-      .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
-      .margin({ bottom: 10 })
-
-      if (this.appScaleMode === SCALE_MODE_CUSTOM) {
-        Column() {
-          Row() {
-            Text('界面缩放')
-              .fontSize(14)
-              .fontColor(this.isDarkMode ? '#FFFFFF' : '#000000')
-            Blank()
-            Text(this.scaleStepName(this.appUiScale, UI_SCALE_STEPS))
-              .fontSize(13)
-              .fontColor(this.customThemeColor)
-              .fontWeight(FontWeight.Medium)
+    HdsNavigation() {
+      Scroll() {
+        Column({ space: 16 }) {
+          // 开关行
+          Column() {
+            this.HividToggleRow('自定义比例', this.appScaleMode === SCALE_MODE_CUSTOM, (value: boolean) => {
+              this.toggleAppScale(value);
+            }, '关闭=跟随系统字体大小与界面缩放')
           }
-          .width('100%')
-          .margin({ bottom: 6 })
-          Slider({ value: this.appUiScale, min: UI_SCALE_STEPS[0].v, max: UI_SCALE_STEPS[UI_SCALE_STEPS.length - 1].v, step: 0.01, style: SliderStyle.InSet })
-            .width('100%')
-            .trackColor(this.isDarkMode ? '#3A3A3A' : '#E8E8E8')
-            .selectedColor(this.customThemeColor)
-            .blockColor(this.customThemeColor)
-            // 拖动中跟手显示；松手/点击时吸附到最近档位
-            .onChange((value: number, mode: SliderChangeMode) => {
-              if (mode === SliderChangeMode.End || mode === SliderChangeMode.Click) {
-                this.appUiScale = this.snapToNearest(value, UI_SCALE_STEPS);
-                this.appScaleDirty = true;
-              } else {
-                this.appUiScale = value;
-                this.appScaleDirty = true;
+          .width('94%')
+          .backgroundColor(this.getCardItemBg())
+          .borderRadius(15)
+          // .shadow({
+          //   radius: 50,
+          //   color: '#80000000',
+          //   offsetX: 0,
+          //   offsetY: 15
+          // })
+
+          if (this.appScaleMode === SCALE_MODE_CUSTOM) {
+            Column() {
+              Column() {
+                Row() {
+                  Text('界面缩放')
+                    .fontSize(16)
+                    .fontColor($r('sys.color.font_primary'))
+                  Blank()
+                  Text(this.scaleStepName(this.appUiScale, UI_SCALE_STEPS))
+                    .fontSize(14)
+                    .fontColor(this.customThemeColor)
+                    .fontWeight(FontWeight.Medium)
+                }
+                .width('100%')
+                .margin({ bottom: 6 })
+                Slider({ value: this.appUiScale, min: UI_SCALE_STEPS[0].v, max: UI_SCALE_STEPS[UI_SCALE_STEPS.length - 1].v, step: 0.01, style: SliderStyle.InSet })
+                  .width('100%')
+                  .trackColor(this.isDarkMode ? '#3A3A3A' : '#E8E8E8')
+                  .selectedColor(this.customThemeColor)
+                  .blockColor(this.customThemeColor)
+                  .onChange((value: number, mode: SliderChangeMode) => {
+                    if (mode === SliderChangeMode.End || mode === SliderChangeMode.Click) {
+                      this.appUiScale = this.snapToNearest(value, UI_SCALE_STEPS);
+                      this.appScaleDirty = true;
+                    } else {
+                      this.appUiScale = value;
+                      this.appScaleDirty = true;
+                    }
+                  })
+                this.ScaleStepsPanel(UI_SCALE_STEPS, this.appUiScale, (v: number) => {
+                  this.appUiScale = v;
+                  this.appScaleDirty = true;
+                })
               }
-            })
-          this.ScaleStepsPanel(UI_SCALE_STEPS, this.appUiScale, (v: number) => {
-            this.appUiScale = v;
-            this.appScaleDirty = true;
-          })
-        }
-        .width('100%')
-        .backgroundColor(this.isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.70)')
-        .borderRadius(16)
-        .padding({ left: 16, right: 16, top: 10, bottom: 12 })
-        .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
-        .margin({ bottom: 10 })
+              .width('100%')
+              .padding({ left: 16, right: 16, top: 12, bottom: 12 })
 
-        Column() {
-          Row() {
-            Text('文字大小')
-              .fontSize(14)
-              .fontColor(this.isDarkMode ? '#FFFFFF' : '#000000')
-            Blank()
-            Text(`${Math.round(this.appFontScale * 100)}%`)
-              .fontSize(13)
-              .fontColor(this.customThemeColor)
-              .fontWeight(FontWeight.Medium)
+              Divider()
+
+              Column() {
+                Row() {
+                  Text('文字大小')
+                    .fontSize(16)
+                    .fontColor($r('sys.color.font_primary'))
+                  Blank()
+                  Text(`${Math.round(this.appFontScale * 100)}%`)
+                    .fontSize(14)
+                    .fontColor(this.customThemeColor)
+                    .fontWeight(FontWeight.Medium)
+                }
+                .width('100%')
+                .margin({ bottom: 6 })
+                Slider({ value: this.appFontScale, min: FONT_SCALE_STEPS[0].v, max: FONT_SCALE_STEPS[FONT_SCALE_STEPS.length - 1].v, step: 0.01, style: SliderStyle.InSet })
+                  .width('100%')
+                  .trackColor(this.isDarkMode ? '#3A3A3A' : '#E8E8E8')
+                  .selectedColor(this.customThemeColor)
+                  .blockColor(this.customThemeColor)
+                  .onChange((value: number) => {
+                    this.appFontScale = value;
+                    this.appScaleDirty = true;
+                  })
+                this.ScaleStepsPanel(FONT_SCALE_STEPS, this.appFontScale, (v: number) => {
+                  this.appFontScale = v;
+                  this.appScaleDirty = true;
+                })
+              }
+              .width('100%')
+              .padding({ left: 16, right: 16, top: 12, bottom: 12 })
+            }
+            .width('94%')
+            .backgroundColor(this.getCardItemBg())
+            .borderRadius(15)
+            // .shadow({
+            //   radius: 50,
+            //   color: '#80000000',
+            //   offsetX: 0,
+            //   offsetY: 15
+            // })
+
+            Text('开启后不再跟随系统设置；恢复跟随需重启应用。')
+              .fontSize(12)
+              .fontColor($r('sys.color.font_secondary'))
+              .width('94%')
+
+            Button() {
+              Row() {
+                Image($r('app.media.chongqi'))
+                  .width(16).height(16)
+                  .fillColor(Color.White)
+                  .margin({ right: 6 })
+                Text('保存并重启')
+                  .fontSize(14)
+                  .fontWeight(FontWeight.Medium)
+                  .fontColor(Color.White)
+              }
+            }
+            .width('94%')
+            .height(44)
+            .backgroundColor(this.customThemeColor)
+            .borderRadius(22)
+            .onClick(() => { this.showAppScaleApplyPrompt(); })
           }
-          .width('100%')
-          .margin({ bottom: 6 })
-          Slider({ value: this.appFontScale, min: FONT_SCALE_STEPS[0].v, max: FONT_SCALE_STEPS[FONT_SCALE_STEPS.length - 1].v, step: 0.01, style: SliderStyle.InSet })
-            .width('100%')
-            .trackColor(this.isDarkMode ? '#3A3A3A' : '#E8E8E8')
-            .selectedColor(this.customThemeColor)
-            .blockColor(this.customThemeColor)
-            // 连续百分比调节：任意值均可
-            .onChange((value: number) => {
-              this.appFontScale = value;
-              this.appScaleDirty = true;
-            })
-          this.ScaleStepsPanel(FONT_SCALE_STEPS, this.appFontScale, (v: number) => {
-            this.appFontScale = v;
-            this.appScaleDirty = true;
-          })
         }
         .width('100%')
-        .backgroundColor(this.isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.70)')
-        .borderRadius(16)
-        .padding({ left: 16, right: 16, top: 10, bottom: 12 })
-        .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
-        .margin({ bottom: 10 })
-
-        Text('开启后不再跟随系统设置；恢复跟随需重启应用。')
-          .fontSize(11)
-          .fontColor(this.isDarkMode ? '#8E8E93' : '#999999')
-          .margin({ bottom: 10 })
-
-        Button() {
-          Row() {
-            Image($r('app.media.chongqi'))
-              .width(16).height(16)
-              .fillColor(Color.White)
-              .margin({ right: 6 })
-            Text('保存并重启')
-              .fontSize(14)
-              .fontWeight(FontWeight.Medium)
-              .fontColor(Color.White)
-          }
-        }
-        .width('100%')
-        .height(40)
-        .backgroundColor(this.customThemeColor)
-        .borderRadius(10)
-        .onClick(() => { this.showAppScaleApplyPrompt(); })
+        .padding({ top: 56 + 16, bottom: 24 })
       }
+      .width('100%')
+      .scrollBar(BarState.Off)
+      .edgeEffect(EdgeEffect.Spring)
     }
-    .width('100%')
-    .padding({ left: 16, right: 16, top: 14, bottom: 28 })
+    .titleMode(HdsNavigationTitleMode.MODAL)
+    .titleBar({
+      padding: { start: LengthMetrics.vp(16), end: LengthMetrics.vp(16) },
+      style: {
+        scrollEffectOpts: {
+          enableScrollEffect: true,
+          scrollEffectType: ScrollEffectType.IMMERSIVE_GRADIENT_BLUR,
+          blurEffectiveStartOffset: LengthMetrics.vp(0),
+          blurEffectiveEndOffset: LengthMetrics.vp(20)
+        },
+        systemMaterialEffect: {
+          materialType: hdsMaterial.MaterialType.ADAPTIVE,
+          materialLevel: hdsMaterial.MaterialLevel.EXQUISITE
+        },
+        originalStyle: {
+          backgroundStyle: { backgroundColor: 'transparent' },
+          contentStyle: {
+            titleStyle: { mainTitleColor: $r('sys.color.font_primary'), subTitleColor: $r('sys.color.font_secondary') },
+            menuStyle: { backgroundColor: $r('sys.color.comp_background_tertiary'), iconColor: $r('sys.color.icon_primary') },
+            backIconStyle: { backgroundColor: $r('sys.color.comp_background_tertiary'), iconColor: $r('sys.color.icon_primary') }
+          }
+        },
+        scrollEffectStyle: {
+          backgroundStyle: { backgroundColor: 'transparent' },
+          contentStyle: {
+            titleStyle: { mainTitleColor: $r('sys.color.font_primary'), subTitleColor: $r('sys.color.font_secondary') },
+            menuStyle: { backgroundColor: $r('sys.color.comp_background_tertiary'), iconColor: $r('sys.color.icon_primary') },
+            backIconStyle: { backgroundColor: $r('sys.color.comp_background_tertiary'), iconColor: $r('sys.color.icon_primary') }
+          }
+        }
+      },
+      content: {
+        title: {
+          mainTitle: '应用比例调节'
+        },
+        menu: {
+          value: [
+            {
+              content: {
+                label: 'modal_cancel',
+                isEnabled: true,
+                type: IconStyleMode.SMALL,
+                action: (): void => {
+                  this.isAppScaleSheetShow = false;
+                }
+              }
+            }
+          ]
+        }
+      }
+    })
   }
 
   @Builder
   CardStyleSheetContent() {
-    CardStyleSheet({ onClose: () => { this.isCardStyleSheetShow = false; } })
+    HdsNavigation() {
+      CardStyleSheet({ onClose: () => { this.isCardStyleSheetShow = false; } })
+    }
+    .titleMode(HdsNavigationTitleMode.MODAL)
+    .titleBar({
+      padding: { start: LengthMetrics.vp(16), end: LengthMetrics.vp(16) },
+      style: {
+        scrollEffectOpts: {
+          enableScrollEffect: true,
+          scrollEffectType: ScrollEffectType.IMMERSIVE_GRADIENT_BLUR,
+          blurEffectiveStartOffset: LengthMetrics.vp(0),
+          blurEffectiveEndOffset: LengthMetrics.vp(20)
+        },
+        systemMaterialEffect: {
+          materialType: hdsMaterial.MaterialType.ADAPTIVE,
+          materialLevel: hdsMaterial.MaterialLevel.EXQUISITE
+        },
+        originalStyle: {
+          backgroundStyle: { backgroundColor: 'transparent' },
+          contentStyle: {
+            titleStyle: { mainTitleColor: $r('sys.color.font_primary'), subTitleColor: $r('sys.color.font_secondary') },
+            menuStyle: { backgroundColor: $r('sys.color.comp_background_tertiary'), iconColor: $r('sys.color.icon_primary') },
+            backIconStyle: { backgroundColor: $r('sys.color.comp_background_tertiary'), iconColor: $r('sys.color.icon_primary') }
+          }
+        },
+        scrollEffectStyle: {
+          backgroundStyle: { backgroundColor: 'transparent' },
+          contentStyle: {
+            titleStyle: { mainTitleColor: $r('sys.color.font_primary'), subTitleColor: $r('sys.color.font_secondary') },
+            menuStyle: { backgroundColor: $r('sys.color.comp_background_tertiary'), iconColor: $r('sys.color.icon_primary') },
+            backIconStyle: { backgroundColor: $r('sys.color.comp_background_tertiary'), iconColor: $r('sys.color.icon_primary') }
+          }
+        }
+      },
+      content: {
+        title: {
+          mainTitle: '卡片样式'
+        },
+        menu: {
+          value: [
+            {
+              content: {
+                label: 'modal_cancel',
+                isEnabled: true,
+                type: IconStyleMode.SMALL,
+                action: (): void => {
+                  this.isCardStyleSheetShow = false;
+                }
+              }
+            }
+          ]
+        }
+      }
+    })
   }
 
   private showToast(message: string): void {
@@ -847,101 +1016,64 @@ export struct ProfilePage {
     }
   }
 
-  private showQualityPicker(): void {
-    const primaryColor = this.isDarkMode ? '#FFFFFF' : '#000000';
-    const cancelColor = this.isDarkMode ? '#FFFFFF' : '#000000';
-    const backgroundColor = this.isDarkMode ? 'rgba(44, 44, 44, 0.95)' : 'rgba(255, 255, 255, 0.95)';
-
-    const buttons: Array<ActionButton> = [];
-
-    for (const item of QUALITY_LIST) {
-      buttons.push({
-        value: item.label,
-        fontColor: primaryColor,
-        action: () => {
-          this.saveDefaultQn(item.qn);
-        }
-      });
+  @Builder
+  QualityMenuBuilder() {
+    Menu() {
+      ForEach(QUALITY_LIST, (item: QualityItem) => {
+        MenuItem({
+          content: item.label,
+          labelInfo: this.defaultVideoQn === item.qn ? '当前' : ''
+        })
+          .onClick(() => {
+            this.isQualityMenuShow = false;
+            this.saveDefaultQn(item.qn);
+          })
+      }, (item: QualityItem) => `${item.qn}`)
     }
-
-    buttons.push({
-      value: '取消',
-      fontColor: cancelColor,
-      action: () => {}
-    });
-
-    AlertDialog.show({
-      title: '选择默认画质',
-      message: '进入视频全屏后可以单独切换画质',
-      backgroundColor: backgroundColor,
-      buttons: buttons
-    });
   }
 
-  private showRecommendApiPicker(): void {
-    const primaryColor = this.isDarkMode ? '#FFFFFF' : '#000000';
-    const cancelColor = this.isDarkMode ? '#FFFFFF' : '#000000';
-    const backgroundColor = this.isDarkMode ? 'rgba(44, 44, 44, 0.95)' : 'rgba(255, 255, 255, 0.95)';
-
-    AlertDialog.show({
-      title: '选择推荐API源',
-      message: 'Web API: 更稳定，推荐质量较高\nApp API: 更新更快，内容更丰富',
-      backgroundColor: backgroundColor,
-      buttons: [
-        {
-          value: 'Web API',
-          fontColor: primaryColor,
-          action: () => {
-            this.saveRecommendApiSource('Web');
-          }
-        },
-        {
-          value: 'App API',
-          fontColor: primaryColor,
-          action: () => {
-            this.saveRecommendApiSource('App');
-          }
-        },
-        {
-          value: '取消',
-          fontColor: cancelColor,
-          action: () => {}
-        }
-      ]
-    });
+  @Builder
+  RecommendApiMenuBuilder() {
+    Menu() {
+      MenuItem({
+        content: 'Web API',
+        labelInfo: this.recommendApiSource === 'Web' ? '当前' : ''
+      })
+        .onClick(() => {
+          this.isRecommendMenuShow = false;
+          this.saveRecommendApiSource('Web');
+        })
+      MenuItem({
+        content: 'App API',
+        labelInfo: this.recommendApiSource === 'App' ? '当前' : ''
+      })
+        .onClick(() => {
+          this.isRecommendMenuShow = false;
+          this.saveRecommendApiSource('App');
+        })
+    }
   }
 
-  private showDanmakuApiPicker(): void {
-    const primaryColor = this.isDarkMode ? '#FFFFFF' : '#000000';
-    const cancelColor = this.isDarkMode ? '#FFFFFF' : '#000000';
-    const backgroundColor = this.isDarkMode ? 'rgba(44, 44, 44, 0.95)' : 'rgba(255, 255, 255, 0.95)';
-
-    AlertDialog.show({
-      title: '选择弹幕数据源',
-      message: 'XML (轻量): 弹幕量较少，加载快，适合看视频不关注弹幕\ngRPC Protobuf (全量): 弹幕数据与官方一致，更完整，适合弹幕爱好者',
-      backgroundColor: backgroundColor,
-      buttons: [
-        {
-          value: 'XML (轻量)',
-          fontColor: primaryColor,
-          action: () => {
-            this.saveDanmakuApiSource('xml');
-          }
-        },
-        {
-          value: 'gRPC Protobuf (全量)',
-          fontColor: primaryColor,
-          action: () => {
-            this.saveDanmakuApiSource('grpc');
-          }
-        },
-        {
-          value: '取消',
-          fontColor: cancelColor,
-          action: () => {}
-        }
-      ]
-    });
+  @Builder
+  DanmakuApiMenuBuilder() {
+    Menu() {
+      MenuItem({
+        content: 'XML (轻量)',
+        labelInfo: this.danmakuApiSource === 'xml' ? '当前' : ''
+      })
+        .onClick(() => {
+          this.isDanmakuMenuShow = false;
+          this.saveDanmakuApiSource('xml');
+        })
+      MenuItem({
+        content: 'gRPC Protobuf (全量)',
+        labelInfo: this.danmakuApiSource === 'grpc' ? '当前' : ''
+      })
+        .onClick(() => {
+          this.isDanmakuMenuShow = false;
+          this.saveDanmakuApiSource('grpc');
+        })
+    }
   }
 
   private async saveDanmakuApiSource(source: string): Promise<void> {
@@ -1120,1085 +1252,465 @@ export struct ProfilePage {
     });
   }
 
-  private getCardItemBg(): string {
+  private getCardItemBg(): ResourceColor {
     if (this.cardTransparentStyle) {
       return this.isDarkMode
-        ? `rgba(0,0,0,${this.cardBgOpacity / 100})`
+        ? `rgba(28,28,30,${this.cardBgOpacity / 100})`
         : `rgba(255,255,255,${this.cardBgOpacity / 100})`;
     }
-    return this.isDarkMode ? '#2C2C2C' : '#E8E8E8';
+    return $r('app.color.card_background');
   }
 
+  /** Hivid 风格分组列表行：左侧标题（+ 可选副标题）+ 右侧可选当前值 + chevron_right 箭头 */
   @Builder
-  SettingItemWithValue(icon: ResourceStr, title: string, value: string, onClick: () => void) {
+  HividRowItem(title: string, onClick: () => void, subtitle: string = '', valueText: string = '') {
     Row() {
-      Image(icon)
-        .width(24).height(24)
-        .fillColor(this.isDarkMode ? '#E5E5E5' : '#333333')
-        .margin({ right: 14 })
-      Text(title)
-        .fontSize(16)
-        .fontColor(this.isDarkMode ? '#E5E5E5' : '#333333')
-        .fontWeight(FontWeight.Medium)
-      Blank()
-      Text(value)
-        .fontSize(14)
-        .fontColor($r('app.color.color_secondary_text'))
-        .margin({ right: 8 })
-      Circle()
-        .width(8)
-        .height(8)
-        .fill(this.isDarkMode ? '#E5E5E5' : '#333333')
-        .margin({ right: 19 })
-    }
-    .width('100%')
-    .height(56)
-    .backgroundColor(this.getCardItemBg())
-    .borderRadius(20)
-    .padding({ left: 16, right: 16 })
-    .margin({ bottom: 16 })
-    .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
-    .clickEffect({ level: 2, scale: 0.93 })
-    .onClick(() => { onClick(); })
-  }
-
-  /** 轮播图标题选项行：左侧标题 + 右侧当前值，点击弹出选择器 */
-  @Builder
-  CarouselTitleOptionRow(title: string, value: string, onClick: () => void) {
-    Row() {
-      Text(title)
-        .fontSize(15)
-        .fontColor(this.isDarkMode ? '#FFFFFF' : '#000000')
-        .fontWeight(FontWeight.Medium)
-        .maxLines(1)
-        .textOverflow({ overflow: TextOverflow.Ellipsis })
-        .flexShrink(1)
-      Blank()
-      Text(value)
-        .fontSize(14)
-        .fontColor(this.isDarkMode ? '#BBBBBB' : '#666666')
-        .margin({ right: 10 })
-      Image($r('app.media.chevron_right'))
-        .width(16).height(16)
-        .fillColor(this.isDarkMode ? '#E5E5E5' : '#333333')
-    }
-    .width('100%')
-    .height(48)
-    .padding({ left: 18, right: 18 })
-    .borderRadius(17)
-    .backgroundColor(this.pressedHighlightId === title
-      ? (this.isDarkMode ? 'rgba(255,255,255,0.18)' : 'rgba(124,124,124,0.4)')
-      : 'transparent')
-    .animation({ duration: 250, curve: Curve.Friction })
-    .clickEffect({ level: 2, scale: 0.93 })
-    .onTouch((e: TouchEvent) => {
-      if (e.type === TouchType.Down) {
-        this.pressedHighlightId = title;
-      } else if (e.type === TouchType.Up || e.type === TouchType.Cancel) {
-        this.pressedHighlightId = '';
-      }
-    })
-    .onClick(() => { onClick(); })
-  }
-
-  @Builder
-  SettingItemWithToggle(icon: ResourceStr, title: string, isOn: boolean, onChange: (isOn: boolean) => void, marginBottom: number = 16, desc: string = '') {
-    Stack() {
-      // 按压高亮层（通过 Stack padding 缩进，比卡片小一圈）
-      Row() {
-        Row()
-          .width('100%')
-          .height('100%')
-          .borderRadius(17)
-          .backgroundColor(this.pressedHighlightId === title ? 'rgba(124,124,124,0.4)' : 'transparent')
-          .animation({ duration: 250, curve: Curve.Friction })
-          .clickEffect({ level: 2, scale: 0.93 })
-      }
-      .width('100%')
-      .height('100%')
-
-      // 内容层
-      Row() {
-        Image(icon)
-          .width(24).height(24)
-          .fillColor(this.isDarkMode ? '#E5E5E5' : '#333333')
-          .margin({ right: 14 })
-        Column() {
-          Text(title)
-            .fontSize(16)
-            .fontColor(this.isDarkMode ? '#E5E5E5' : '#333333')
-            .fontWeight(FontWeight.Medium)
+      Column() {
+        Text(title)
+          .fontSize(16)
+          .fontColor($r('sys.color.font_primary'))
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+        if (subtitle.length > 0) {
+          Text(subtitle)
+            .fontSize(12)
+            .fontColor($r('sys.color.font_secondary'))
+            .margin({ top: 2 })
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
-            .width('100%')
-          // ⭐ 可选副标题：常驻说明文字（例如开关"关闭后的效果"）；不传 desc 时完全不占位
-          if (desc.length > 0) {
-            Text(desc)
-              .fontSize(12)
-              .fontColor(this.isDarkMode ? '#999999' : '#888888')
-              .maxLines(1)
-              .textOverflow({ overflow: TextOverflow.Ellipsis })
-              .margin({ top: 2 })
-              .width('100%')
-          }
         }
-        .alignItems(HorizontalAlign.Start)
-        .layoutWeight(1)
-        Blank()
-        Toggle({ type: ToggleType.Switch, isOn: isOn })
-          .selectedColor(this.customThemeColor)
-          .switchPointColor(Color.White)
-          .onChange((value: boolean) => { onChange(value); })
       }
-      .width('100%')
-      .height('100%')
-      .padding({ left: 18, right: 18 })
+      .alignItems(HorizontalAlign.Start)
+      .layoutWeight(1)
 
-      .width('100%')
-      .height('100%')
-      .padding({ left: 12, right: 12 })
-      .clickEffect({ level: 2, scale: 0.93 })
+      if (valueText.length > 0) {
+        Text(valueText)
+          .fontSize(12)
+          .fontColor($r('sys.color.font_secondary'))
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .margin({ right: 8 })
+      }
+
+      SymbolGlyph($r('sys.symbol.chevron_right'))
+        .fontSize(14)
+        .fontColor([$r('sys.color.icon_secondary')])
     }
     .width('100%')
-    // ⭐ 有副标题时略增高，保证两行文字不挤；没副标题仍是原来的 56vp
-    .height(desc.length > 0 ? 66 : 56)
-    .backgroundColor(this.getCardItemBg())
-    .borderRadius(20)
-    .padding({ left: 6, right: 6, top: 6, bottom: 6 })
-    .margin({ bottom: marginBottom })
-    .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
-    .onTouch((e: TouchEvent) => {
-      if (e.type === TouchType.Down) {
-        this.pressedHighlightId = title;
-      } else if (e.type === TouchType.Up || e.type === TouchType.Cancel) {
-        this.pressedHighlightId = '';
-      }
-    })
-  }
-
-  @Builder
-  SettingItem(icon: ResourceStr, title: string, onClick: () => void) {
-    Stack() {
-      // 按压高亮层（通过 Stack padding 缩进，比卡片小一圈）
-      Row() {
-        Row()
-          .width('100%')
-          .height('100%')
-          .borderRadius(17)
-          .backgroundColor(this.pressedHighlightId === title ? 'rgba(124,124,124,0.4)' : 'transparent')
-          .animation({ duration: 250, curve: Curve.Friction })
-          .clickEffect({ level: 2, scale: 0.93 })
-      }
-      .width('100%')
-      .height('100%')
-
-      // 内容层
-      Row() {
-        Image(icon)
-          .width(24).height(24)
-          .fillColor(this.isDarkMode ? '#E5E5E5' : '#333333')
-          .margin({ right: 14 })
-        Text(title)
-          .fontSize(16)
-          .fontColor(this.isDarkMode ? '#E5E5E5' : '#333333')
-          .fontWeight(FontWeight.Medium)
-        Blank()
-        Circle()
-          .width(8)
-          .height(8)
-          .fill(this.isDarkMode ? '#E5E5E5' : '#333333')
-          .margin({ right: 19 })
-      }
-      .width('100%')
-      .height('100%')
-      .padding({ left: 12, right: 12 })
-      .clickEffect({ level: 2, scale: 0.93 })
-    }
-    .width('100%')
-    .height(56)
-    .backgroundColor(this.getCardItemBg())
-    .borderRadius(20)
-    .padding({ left: 6, right: 6, top: 6, bottom: 6 })
-    .margin({ bottom: 16 })
-    .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
-    .onTouch((e: TouchEvent) => {
-      if (e.type === TouchType.Down) {
-        this.pressedHighlightId = title;
-      } else if (e.type === TouchType.Up || e.type === TouchType.Cancel) {
-        this.pressedHighlightId = '';
-      }
-    })
+    .height(subtitle.length > 0 ? 64 : 56)
+    .padding({ left: 16, right: 16 })
+    .alignItems(VerticalAlign.Center)
     .onClick(() => { onClick(); })
   }
 
+  /** Hivid 风格分组开关行：左侧标题（+ 可选说明副标题）+ 右侧 Toggle 开关（整行可点） */
   @Builder
-  SettingItemWithPicker(icon: ResourceStr, title: string, onClick: () => void, marginBottom: number = 16) {
-    Stack() {
-      // 按压高亮层（通过 Stack padding 缩进，比卡片小一圈）
-      Row() {
-        Row()
-          .width('100%')
-          .height('100%')
-          .borderRadius(17)
-          .backgroundColor(this.pressedHighlightId === title ? 'rgba(124,124,124,0.4)' : 'transparent')
-          .animation({ duration: 250, curve: Curve.Friction })
-          .clickEffect({ level: 2, scale: 0.93 })
-      }
-      .width('100%')
-      .height('100%')
-
-      // 内容层
-      Row() {
-        Image(icon)
-          .width(24).height(24)
-          .fillColor(this.isDarkMode ? '#E5E5E5' : '#333333')
-          .margin({ right: 14 })
+  HividToggleRow(title: string, isOn: boolean, onChange: (isOn: boolean) => void, desc: string = '') {
+    Row() {
+      Column() {
         Text(title)
           .fontSize(16)
-          .fontColor(this.isDarkMode ? '#E5E5E5' : '#333333')
-          .fontWeight(FontWeight.Medium)
-        Blank()
-        Circle()
-          .width(8)
-          .height(8)
-          .fill(this.isDarkMode ? '#E5E5E5' : '#333333')
-          .margin({ right: 19 })
+          .fontColor($r('sys.color.font_primary'))
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+        if (desc.length > 0) {
+          Text(desc)
+            .fontSize(12)
+            .fontColor($r('sys.color.font_secondary'))
+            .margin({ top: 2 })
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+        }
       }
-      .width('100%')
-      .height('100%')
-      .padding({ left: 12, right: 12 })
-      .clickEffect({ level: 2, scale: 0.93 })
+      .alignItems(HorizontalAlign.Start)
+      .layoutWeight(1)
+
+      Toggle({ type: ToggleType.Switch, isOn: isOn })
+        .selectedColor(this.customThemeColor)
+        .switchPointColor(Color.White)
+        .onChange((value: boolean) => {
+          if (value !== isOn) {
+            onChange(value);
+          }
+        })
     }
     .width('100%')
-    .height(56)
-    .backgroundColor(this.getCardItemBg())
-    .borderRadius(20)
-    .padding({ left: 6, right: 6, top: 6, bottom: 6 })
-    .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
-    .margin({ bottom: marginBottom })
-    .onTouch((e: TouchEvent) => {
-      if (e.type === TouchType.Down) {
-        this.pressedHighlightId = title;
-      } else if (e.type === TouchType.Up || e.type === TouchType.Cancel) {
-        this.pressedHighlightId = '';
-      }
+    .height(desc.length > 0 ? 64 : 56)
+    .padding({ left: 16, right: 16 })
+    .alignItems(VerticalAlign.Center)
+    .onClick(() => {
+      onChange(!isOn);
     })
-    .onClick(() => { onClick(); })
   }
 
   @Builder
   SectionHeader(title: string) {
     Text(title)
-      .fontSize(14)
+      .fontSize(13)
       .fontWeight(FontWeight.Medium)
-      .fontColor(this.isDarkMode ? '#FFFFFF' : '#000000')
-      .width('100%')
-      .margin({ left: 24, bottom: 16 })
+      .fontColor($r('sys.color.font_secondary'))
+      .width('94%')
+      .margin({ top: 18, bottom: 8, left: 12 })
   }
 
   build() {
-    Stack() {
+    HdsNavigation() {
       Scroll() {
         Column() {
-          // ── 头像卡片 + 深色模式（左右并排）──
-          Row({ space: 12 }) {
-            // 头像卡片（占 2/3）— 跟随卡片样式透明选项
-            Stack() {
-              Row() {
-                Row()
-                  .width('100%')
-                  .height('100%')
-                  .borderRadius(21)
-                  .backgroundColor(this.pressedHighlightId === 'avatar_card' ? 'rgba(124,124,124,0.4)' : 'transparent')
-                  .animation({ duration: 250, curve: Curve.Friction })
-                  .clickEffect({ level: 2, scale: 0.93 })
-              }
-                .width('100%')
-                .height('100%')
-
-              Row() {
-                if (this.isLoggedIn && this.userAvatarUrl) {
-                  Image(this.userAvatarUrl)
-                    .width(56)
-                    .height(56)
-                    .borderRadius(28)
-                    .objectFit(ImageFit.Cover)
-                } else {
-                  Circle({ width: 56, height: 56 })
-                    .fill(this.isLoggedIn ? this.customThemeColor : (this.isDarkMode ? '#333333' : '#E0E0E0'))
-                }
-                Column() {
-                  Text(this.userDisplayName)
-                    .fontSize(16)
-                    .fontWeight(FontWeight.Medium)
-                    .fontColor($r('app.color.color_primary_text'))
-                  if (this.isLoggedIn) {
-                    Text('进入个人空间')
-                      .fontSize(12)
-                      .fontColor(this.customThemeColor)
-                      .margin({ top: 4 })
-                      .fontWeight(FontWeight.Medium)
-                  } else {
-                    Text('点击登录')
-                      .fontSize(12)
-                      .fontColor(this.customThemeColor)
-                      .margin({ top: 4 })
-                      .fontWeight(FontWeight.Medium)
-                  }
-                }
+          // ── 1. 最顶部：头像卡片（Hivid UserInfoCard 通栏形式）──
+          Row() {
+            if (this.isLoggedIn && this.userAvatarUrl) {
+              Image(this.userAvatarUrl)
+                .width(48)
+                .height(48)
+                .borderRadius(24)
+                .objectFit(ImageFit.Cover)
                 .margin({ left: 12 })
-                .alignItems(HorizontalAlign.Start)
-                .constraintSize({ maxWidth: 180 })
-              }
-              .alignItems(VerticalAlign.Center)
-              .justifyContent(FlexAlign.Center)
-              .padding({ left: 12, right: 12 })
-              .height('100%')
-              .clickEffect({ level: 2, scale: 0.93 })
+                .draggable(false)
+            } else {
+              SymbolGlyph($r('sys.symbol.person_fill'))
+                .fontSize(48)
+                .fontColor([$r('sys.color.icon_emphasize')])
+                .margin({ left: 12 })
             }
-            .layoutWeight(2)
-            .height('100%')
-            .backgroundColor(this.getCardItemBg())
-            .borderRadius(24)
-            .padding({ left: 6, right: 6, top: 6, bottom: 6 })
-            .shadow({ radius: 16, color: '#1A000000', offsetY: 4 })
-            .onTouch((e: TouchEvent) => {
-              if (e.type === TouchType.Down) {
-                this.pressedHighlightId = 'avatar_card';
-              } else if (e.type === TouchType.Up || e.type === TouchType.Cancel) {
-                this.pressedHighlightId = '';
-              }
-            })
-            .onClick(() => {
-              if (this.isLoggedIn) {
-                this.getUIContext().getRouter().pushUrl({
-                  url: 'pages/UpSpacePage',
-                  params: {
-                    mid: this.userMid,
-                    upName: this.userDisplayName,
-                    upFace: this.userAvatarUrl
-                  }
-                }).catch((err: Error) => {
-                  logWarn(`[ProfilePage] 进入个人空间失败: ${err}`);
-                });
-              } else {
-                this.goToLogin();
-              }
-            })
 
-            // 深色模式（占 1/3）
-            Stack() {
-              Row() {
-                Row()
-                  .width('100%')
-                  .height('100%')
-                  .borderRadius(21)
-                  .backgroundColor(this.pressedHighlightId === 'dark_mode_card' ? 'rgba(124,124,124,0.4)' : 'transparent')
-                  .animation({ duration: 250, curve: Curve.Friction })
-                  .clickEffect({ level: 2, scale: 0.85 })
-              }
-                .width('100%')
-                .height('100%')
-
-              Column() {
-                Image(this.isDarkMode ? $r('app.media.ic_settings_darkmode') : $r('app.media.sun_min'))
-                  .width(32).height(32)
-                  .fillColor(this.isDarkMode ? '#E5E5E5' : '#333333')
-                  .margin({ bottom: 8 })
-                Text(this.isDarkMode ? '深色' : '浅色')
-                  .fontSize(14)
-                  .fontColor(this.isDarkMode ? '#E5E5E5' : '#333333')
-                  .fontWeight(FontWeight.Medium)
-                Text('')
-                  .fontSize(16)
-                  .opacity(0)
-              }
-              .width('100%')
-              .height('100%')
-              .padding({ left: 12, right: 12 })
-              .justifyContent(FlexAlign.Center)
-              .alignItems(HorizontalAlign.Center)
-              .clickEffect({ level: 2, scale: 0.85 })
-            }
-            .layoutWeight(1)
-            .height('100%')
-            .backgroundColor(this.getCardItemBg())
-            .borderRadius(24)
-            .padding({ left: 6, right: 6, top: 6, bottom: 6 })
-            .shadow({ radius: 16, color: '#1A000000', offsetY: 4 })
-            .onTouch((e: TouchEvent) => {
-              if (e.type === TouchType.Down) {
-                this.pressedHighlightId = 'dark_mode_card';
-              } else if (e.type === TouchType.Up || e.type === TouchType.Cancel) {
-                this.pressedHighlightId = '';
-              }
-            })
-            .onClick(() => { this.onDarkModeChange(!this.isDarkMode); })
-          }
-          .width('100%')
-          .height(160)
-          .margin({ top: 20, bottom: 16 })
-
-          // ── 快捷操作：历史记录 / 我的收藏 / 离线缓存 ──
-          Row({ space: 12 }) {
-
-            // 历史记录
-            Stack() {
-              Row() {
-                Row()
-                  .width('100%')
-                  .height('100%')
-                  .borderRadius(17)
-                  .backgroundColor(this.pressedHighlightId === 'history_card' ? 'rgba(124,124,124,0.4)' : 'transparent')
-                  .animation({ duration: 250, curve: Curve.Friction })
-                  .clickEffect({ level: 2, scale: 0.85 })
-              }
-                .width('100%')
-                .height('100%')
-
-              Column() {
-                Image($r('app.media.ic_settings_history'))
-                  .width(32).height(32)
-                  .fillColor(this.isDarkMode ? '#E5E5E5' : '#333333')
-                  .margin({ bottom: 8 })
-                Text('历史记录')
-                  .fontSize(14)
-                  .fontColor(this.isDarkMode ? '#E5E5E5' : '#333333')
-                  .fontWeight(FontWeight.Medium)
-                Text('')
-                  .fontSize(16)
-                  .opacity(0)
-              }
-              .width('100%')
-              .height('100%')
-              .justifyContent(FlexAlign.Center)
-              .alignItems(HorizontalAlign.Center)
-              .clickEffect({ level: 2, scale: 0.85 })
-            }
-            .layoutWeight(1)
-            .height(140)
-            .backgroundColor(this.getCardItemBg())
-            .borderRadius(20)
-            .padding({ left: 6, right: 6, top: 6, bottom: 6 })
-            .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
-            .onTouch((e: TouchEvent) => {
-              if (e.type === TouchType.Down) {
-                this.pressedHighlightId = 'history_card';
-              } else if (e.type === TouchType.Up || e.type === TouchType.Cancel) {
-                this.pressedHighlightId = '';
-              }
-            })
-            .onClick(() => { this.goToWatchHistory(); })
-
-            // 我的收藏
-            Stack() {
-              Row() {
-                Row()
-                  .width('100%')
-                  .height('100%')
-                  .borderRadius(17)
-                  .backgroundColor(this.pressedHighlightId === 'favorites_card' ? 'rgba(124,124,124,0.4)' : 'transparent')
-                  .animation({ duration: 250, curve: Curve.Friction })
-                  .clickEffect({ level: 2, scale: 0.85 })
-              }
-                .width('100%')
-                .height('100%')
-
-              Column() {
-                Image($r('app.media.ic_public_folder'))
-                  .width(32).height(32)
-                  .fillColor(this.isDarkMode ? '#E5E5E5' : '#333333')
-                  .margin({ bottom: 8 })
-                Text('我的收藏')
-                  .fontSize(14)
-                  .fontColor(this.isDarkMode ? '#E5E5E5' : '#333333')
-                  .fontWeight(FontWeight.Medium)
-                Text('')
-                  .fontSize(16)
-                  .opacity(0)
-              }
-              .width('100%')
-              .height('100%')
-              .justifyContent(FlexAlign.Center)
-              .alignItems(HorizontalAlign.Center)
-              .clickEffect({ level: 2, scale: 0.85 })
-            }
-            .layoutWeight(1)
-            .height(140)
-            .backgroundColor(this.getCardItemBg())
-            .borderRadius(20)
-            .padding({ left: 6, right: 6, top: 6, bottom: 6 })
-            .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
-            .onTouch((e: TouchEvent) => {
-              if (e.type === TouchType.Down) {
-                this.pressedHighlightId = 'favorites_card';
-              } else if (e.type === TouchType.Up || e.type === TouchType.Cancel) {
-                this.pressedHighlightId = '';
-              }
-            })
-            .onClick(() => { this.goToFavorites(); })
-
-            // 离线缓存（空白占位）
-            Stack() {
-              Row() {
-                Row()
-                  .width('100%')
-                  .height('100%')
-                  .borderRadius(17)
-                  .backgroundColor(this.pressedHighlightId === 'offline_card' ? 'rgba(124,124,124,0.4)' : 'transparent')
-                  .animation({ duration: 250, curve: Curve.Friction })
-                  .clickEffect({ level: 2, scale: 0.85 })
-              }
-                .width('100%')
-                .height('100%')
-
-              Column() {
-                Image($r('app.media.save'))
-                  .width(32).height(32)
-                  .fillColor(this.isDarkMode ? '#E5E5E5' : '#333333')
-                  .margin({ bottom: 8 })
-                Text('离线缓存')
-                  .fontSize(14)
-                  .fontColor(this.isDarkMode ? '#E5E5E5' : '#333333')
-                  .fontWeight(FontWeight.Medium)
-                Text('')
-                  .fontSize(16)
-                  .opacity(0)
-              }
-              .width('100%')
-              .height('100%')
-              .justifyContent(FlexAlign.Center)
-              .alignItems(HorizontalAlign.Center)
-              .clickEffect({ level: 2, scale: 0.85 })
-            }
-            .layoutWeight(1)
-            .height(140)
-            .backgroundColor(this.getCardItemBg())
-            .borderRadius(20)
-            .padding({ left: 6, right: 6, top: 6, bottom: 6 })
-            .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
-            .onTouch((e: TouchEvent) => {
-              if (e.type === TouchType.Down) {
-                this.pressedHighlightId = 'offline_card';
-              } else if (e.type === TouchType.Up || e.type === TouchType.Cancel) {
-                this.pressedHighlightId = '';
-              }
-            })
-            .onClick(() => { this.goToOfflineCache(); })
-          }
-          .width('100%')
-          .margin({ bottom: 16 })
-
-          // ⭐ 节标题：个性化设置
-          Text('个性化设置')
-            .fontSize(14)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(this.isDarkMode ? '#FFFFFF' : '#000000')
-            .width('100%')
-            .margin({ left: 24, bottom: 16 })
-
-          if (!this.isLandscape) {
-            // ── 竖屏：单列（卡片 + 搜索发现 + 关于我们）──
             Column() {
-              // 动画·背景·色彩（原个性化）
-              Stack() {
-                Row() {
-                  Row()
-                    .width('100%')
-                    .height('100%')
-                    .borderRadius(17)
-                    .backgroundColor(this.pressedHighlightId === '动画·背景·色彩' ? 'rgba(124,124,124,0.4)' : 'transparent')
-                    .animation({ duration: 250, curve: Curve.Friction })
-                    .clickEffect({ level: 2, scale: 0.93 })
-                }
-                  .width('100%')
-                  .height('100%')
-
-                Row() {
-                  Image($r('app.media.ic_settings_personalize'))
-                    .width(24).height(24)
-                    .fillColor(this.isDarkMode ? '#E5E5E5' : '#333333')
-                    .margin({ right: 14 })
-                  Text('个性化')
-                    .fontSize(16)
-                    .fontColor(this.isDarkMode ? '#E5E5E5' : '#333333')
-                    .fontWeight(FontWeight.Medium)
-                  Blank()
-                  Text('动画·背景·色彩')
-                    .fontSize(12)
-                    .fontColor(this.isDarkMode ? '#BBBBBB' : '#666666')
-                    .fontWeight(FontWeight.Normal)
-                    .margin({ right: 8 })
-                  Circle()
-                    .width(8)
-                    .height(8)
-                    .fill(this.isDarkMode ? '#E5E5E5' : '#333333')
-                    .margin({ right: 19 })
-                }
-                .width('100%')
-                .height('100%')
-                .padding({ left: 12, right: 12 })
-                .clickEffect({ level: 2, scale: 0.93 })
-              }
-              .width('100%')
-              .height(64)
-              .padding({ left: 6, right: 6, top: 10, bottom: 10 })
-              .onTouch((e: TouchEvent) => {
-                if (e.type === TouchType.Down) {
-                  this.pressedHighlightId = '动画·背景·色彩';
-                } else if (e.type === TouchType.Up || e.type === TouchType.Cancel) {
-                  this.pressedHighlightId = '';
-                }
-              })
-              .onClick(() => { this.goToPersonalization(); })
-
-              Divider()
-                .height(1)
-                .width('100%')
-                .color(this.isDarkMode ? '#3C3C3E' : '#E0E0E0')
-                .margin({ top: 2, bottom: 2 })
-
-              // 卡片样式
-              Stack() {
-                Row() {
-                  Row()
-                    .width('100%')
-                    .height('100%')
-                    .borderRadius(17)
-                    .backgroundColor(this.pressedHighlightId === '卡片样式' ? 'rgba(124,124,124,0.4)' : 'transparent')
-                    .animation({ duration: 250, curve: Curve.Friction })
-                    .clickEffect({ level: 2, scale: 0.93 })
-                }
-                  .width('100%')
-                  .height('100%')
-
-                Row() {
-                  Image($r('app.media.transparency_lock'))
-                    .width(24).height(24)
-                    .fillColor(this.isDarkMode ? '#E5E5E5' : '#333333')
-                    .margin({ right: 14 })
-                  Text('卡片样式')
-                    .fontSize(16)
-                    .fontColor(this.isDarkMode ? '#E5E5E5' : '#333333')
-                    .fontWeight(FontWeight.Medium)
-                  Blank()
-                  Text('圆角·边距·色彩')
-                    .fontSize(12)
-                    .fontColor(this.isDarkMode ? '#BBBBBB' : '#666666')
-                    .fontWeight(FontWeight.Normal)
-                    .margin({ right: 8 })
-                  Circle()
-                    .width(8)
-                    .height(8)
-                    .fill(this.isDarkMode ? '#E5E5E5' : '#333333')
-                    .margin({ right: 19 })
-                }
-                .width('100%')
-                .height('100%')
-                .padding({ left: 12, right: 12 })
-                .clickEffect({ level: 2, scale: 0.93 })
-              }
-              .width('100%')
-              .height(64)
-              .padding({ left: 6, right: 6, top: 10, bottom: 10 })
-              .onTouch((e: TouchEvent) => {
-                if (e.type === TouchType.Down) {
-                  this.pressedHighlightId = '卡片样式';
-                } else if (e.type === TouchType.Up || e.type === TouchType.Cancel) {
-                  this.pressedHighlightId = '';
-                }
-              })
-              .onClick(() => { this.isCardStyleSheetShow = true; })
-
-              Divider()
-                .height(1)
-                .width('100%')
-                .color(this.isDarkMode ? '#3C3C3E' : '#E0E0E0')
-                .margin({ top: 2, bottom: 2 })
-
-              // ── 应用比例调节（我的页面 → 卡片样式下方） ──
-              Stack() {
-                Row() {
-                  Row()
-                    .width('100%')
-                    .height('100%')
-                    .borderRadius(17)
-                    .backgroundColor(this.pressedHighlightId === '应用比例' ? 'rgba(124,124,124,0.4)' : 'transparent')
-                    .animation({ duration: 250, curve: Curve.Friction })
-                    .clickEffect({ level: 2, scale: 0.93 })
-                }
-                  .width('100%')
-                  .height('100%')
-
-                Row() {
-                  Image($r('app.media.chicun'))
-                    .width(24).height(24)
-                    .fillColor(this.isDarkMode ? '#E5E5E5' : '#333333')
-                    .margin({ right: 14 })
-                  Text('应用比例调节')
-                    .fontSize(16)
-                    .fontColor(this.isDarkMode ? '#E5E5E5' : '#333333')
-                    .fontWeight(FontWeight.Medium)
-                  Blank()
-                  Text('界面缩放·文字大小')
-                    .fontSize(12)
-                    .fontColor(this.isDarkMode ? '#BBBBBB' : '#666666')
-                    .fontWeight(FontWeight.Normal)
-                    .margin({ right: 8 })
-                  Circle()
-                    .width(8)
-                    .height(8)
-                    .fill(this.isDarkMode ? '#E5E5E5' : '#333333')
-                    .margin({ right: 19 })
-                }
-                .width('100%')
-                .height('100%')
-                .padding({ left: 12, right: 12 })
-                .clickEffect({ level: 2, scale: 0.93 })
-              }
-              .width('100%')
-              .height(64)
-              .padding({ left: 6, right: 6, top: 10, bottom: 10 })
-              .onTouch((e: TouchEvent) => {
-                if (e.type === TouchType.Down) {
-                  this.pressedHighlightId = '应用比例';
-                } else if (e.type === TouchType.Up || e.type === TouchType.Cancel) {
-                  this.pressedHighlightId = '';
-                }
-              })
-              .onClick(() => { this.openAppScaleSheet(); })
-              .bindSheet($$this.isAppScaleSheetShow, this.AppScaleSheetContent(), {
-                height: '85%',
-                dragBar: false,
-                showClose: false,
-                backgroundColor: this.isDarkMode ? '#1C1C1E' : '#F5F5F5',
-                onWillDismiss: (dismissSheetAction: DismissSheetAction) => {
-                  if (this.appScaleDirty) {
-                    if (this.appScaleMode !== this.appScaleModeSaved) {
-                      // 关闭了「自定义比例」开关：需重启才生效
-                      AlertDialog.show({
-                        title: '关闭自定义比例',
-                        message: '关闭后需重启应用才完全跟随系统设置。是否现在重启？',
-                        autoCancel: false,
-                        primaryButton: {
-                          value: '取消',
-                          fontColor: this.isDarkMode ? '#FFFFFF' : '#000000',
-                          action: () => {
-                            // 维持现状：还原为已保存的自定义模式
-                            this.appScaleMode = this.appScaleModeSaved;
-                            this.appUiScale = this.appUiScaleSaved;
-                            this.appFontScale = this.appFontScaleSaved;
-                            this.appScaleDirty = false;
-                            dismissSheetAction.dismiss();
-                          }
-                        },
-                        secondaryButton: {
-                          value: '重启',
-                          fontColor: '#E84040',
-                          action: () => { this.persistAndRestartApp(this.appScaleMode); }
-                        }
-                      });
-                    } else {
-                      // 调了滑杆未保存：取消=留在弹窗 / 退出=还原并关闭
-                      AlertDialog.show({
-                        title: '退出应用比例调节',
-                        message: '有未应用的比例更改，退出后将丢失。是否退出？',
-                        autoCancel: false,
-                        primaryButton: {
-                          value: '取消',
-                          fontColor: this.isDarkMode ? '#FFFFFF' : '#000000',
-                          action: () => {}
-                        },
-                        secondaryButton: {
-                          value: '退出',
-                          fontColor: '#E84040',
-                          action: () => {
-                            // 还原为上次保存值，不保存、不应用
-                            this.appUiScale = this.appUiScaleSaved;
-                            this.appFontScale = this.appFontScaleSaved;
-                            this.appScaleDirty = false;
-                            // 用系统 dismiss 完成关闭，避免手动置false双动画闪屏
-                            dismissSheetAction.dismiss();
-                          }
-                        }
-                      });
-                    }
-                  } else {
-                    // 直接走系统关闭动画，不再手动置状态
-                    dismissSheetAction.dismiss();
-                  }
-                }
-              })
+              Text(this.userDisplayName)
+                .fontSize(18)
+                .fontColor($r('sys.color.font_primary'))
+                .fontWeight(FontWeight.Medium)
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+              Text(this.isLoggedIn ? '已登录 · 点击进入个人空间' : '未登录 · 点击登录')
+                .fontSize(12)
+                .fontColor($r('sys.color.font_secondary'))
+                .margin({ top: 4 })
             }
-            .width('100%')
-            .backgroundColor(this.getCardItemBg())
-            .borderRadius(20)
-            .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
-            .margin({ bottom: 16 })
+            .margin({ left: 12 })
+            .alignItems(HorizontalAlign.Start)
+            .layoutWeight(1)
 
-          // ── 播放与推荐 ──
-          this.SectionHeader('播放与推荐')
-          this.SettingItemWithPicker($r('app.media.ic_settings_quality'), '画质', () => { this.showQualityPicker(); }, 8)
-          this.SettingItemWithPicker($r('app.media.ic_settings_quality'), '推荐源', () => { this.showRecommendApiPicker(); }, 8)
-          this.SettingItemWithPicker($r('app.media.ic_settings_quality'), '弹幕数据源', () => { this.showDanmakuApiPicker(); }, 8)
-          // ⭐ 回桌面自动画中画开关（播放页按此 key 武装/解除自动小窗）
-          this.SettingItemWithToggle($r('app.media.ic_settings_quality'), '自动小窗', this.autoPip, async (value: boolean) => {
-            this.autoPip = value;
-          }, 8, '播放中回到桌面自动以小窗继续播放')
+            SymbolGlyph($r('sys.symbol.chevron_right'))
+              .fontSize(14)
+              .fontColor([$r('sys.color.icon_secondary')])
+              .margin({ right: 16 })
+          }
+          .width('94%')
+          .height(72)
+          .borderRadius(15)
+          .backgroundColor(this.getCardItemBg())
+          .alignItems(VerticalAlign.Center)
+          .margin({ top: 16 })
+          // .shadow({
+          //   radius: 50,
+          //   color: '#80000000',
+          //   offsetX: 0,
+          //   offsetY: 15
+          // })
+          .onClick(() => {
+            if (this.isLoggedIn) {
+              this.getUIContext().getRouter().pushUrl({
+                url: 'pages/UpSpacePage',
+                params: {
+                  mid: this.userMid,
+                  upName: this.userDisplayName,
+                  upFace: this.userAvatarUrl
+                }
+              }).catch((err: Error) => {
+                logWarn(`[ProfilePage] 进入个人空间失败: ${err}`);
+              });
+            } else {
+              this.goToLogin();
+            }
+          })
 
-          // ── 首页轮播 ──
-          this.SectionHeader('首页轮播')
+          // ── 2. 历史记录 / 我的收藏 / 离线缓存（Hivid 分组列表卡片）──
           Column() {
-            // ── 折叠头 ──
+            this.HividRowItem('历史记录', () => { this.goToWatchHistory(); })
+            Divider()
+            this.HividRowItem('我的收藏', () => { this.goToFavorites(); })
+            Divider()
+            this.HividRowItem('离线缓存', () => { this.goToOfflineCache(); })
+          }
+          .width('94%')
+          .borderRadius(15)
+          .margin({ top: 16 })
+          .backgroundColor(this.getCardItemBg())
+          // .shadow({
+          //   radius: 50,
+          //   color: '#80000000',
+          //   offsetX: 0,
+          //   offsetY: 15
+          // })
+
+          // ── 3. 夜间模式开关（Hivid 风格卡片 + 响应整行点击与 Toggle）──
+          Column() {
             Row() {
-              Row() {
-                Image($r('app.media.ic_public_albums'))
-                  .width(24).height(24)
-                  .fillColor(this.isDarkMode ? '#E5E5E5' : '#333333')
-                  .margin({ right: 14 })
-                Text('轮播选项')
-                  .fontSize(15)
-                  .fontColor(this.isDarkMode ? '#FFFFFF' : '#000000')
-                  .fontWeight(FontWeight.Medium)
+              Column() {
+                Text('夜间模式')
+                  .fontSize(16)
+                  .fontColor($r('sys.color.font_primary'))
                   .maxLines(1)
                   .textOverflow({ overflow: TextOverflow.Ellipsis })
-                  .flexShrink(1)
-                Blank()
-                Image($r('app.media.ic_public_arrow_left_filled'))
-                  .width(20).height(20)
-                  .fillColor(this.isDarkMode ? '#E5E5E5' : '#333333')
-                  .rotate({ angle: this.carouselExpanded ? 90 : -90 })
-                  .animation({ duration: 200, curve: Curve.FastOutSlowIn })
               }
-              .width('100%')
-              .height(48)
-              .padding({ left: 18, right: 18 })
+              .alignItems(HorizontalAlign.Start)
+              .layoutWeight(1)
+
+              Toggle({ type: ToggleType.Switch, isOn: this.isDarkMode })
+                .selectedColor(this.customThemeColor)
+                .switchPointColor(Color.White)
+                .onChange((value: boolean) => {
+                  if (value !== this.isDarkMode) {
+                    this.onDarkModeChange(value);
+                  }
+                })
             }
             .width('100%')
-            .height(48)
-            .borderRadius(17)
-            .backgroundColor(this.pressedHighlightId === '轮播选项'
-              ? (this.isDarkMode ? 'rgba(255,255,255,0.18)' : 'rgba(124,124,124,0.4)')
-              : 'transparent')
-            .animation({ duration: 250, curve: Curve.Friction })
-            .clickEffect({ level: 2, scale: 0.93 })
-            .onTouch((e: TouchEvent) => {
-              if (e.type === TouchType.Down) {
-                this.pressedHighlightId = '轮播选项';
-              } else if (e.type === TouchType.Up || e.type === TouchType.Cancel) {
-                this.pressedHighlightId = '';
+            .height(56)
+            .padding({ left: 16, right: 16 })
+            .alignItems(VerticalAlign.Center)
+            .onClick(() => {
+              this.onDarkModeChange(!this.isDarkMode);
+            })
+          }
+          .width('94%')
+          .borderRadius(15)
+          .margin({ top: 16 })
+          .backgroundColor(this.getCardItemBg())
+          // .shadow({
+          //   radius: 50,
+          //   color: '#80000000',
+          //   offsetX: 0,
+          //   offsetY: 15
+          // })
+
+          // ── 4. 个性化设置分组卡片 ──
+          this.SectionHeader('个性化设置')
+          Column() {
+            this.HividRowItem('个性化', () => { this.goToPersonalization(); }, '', '动画·背景·色彩')
+            Divider()
+            this.HividRowItem('卡片样式', () => { this.isCardStyleSheetShow = true; }, '', '圆角·边距·色彩')
+            Divider()
+            Column() {
+              this.HividRowItem('应用比例调节', () => { this.openAppScaleSheet(); }, '', '界面缩放·文字大小')
+            }
+            .width('100%')
+            .bindSheet($$this.isAppScaleSheetShow, this.AppScaleSheetContent, {
+              height: '65%',
+              backgroundColor: undefined,
+              showClose: false,
+              preferType: SheetType.CENTER,
+              onWillDismiss: (dismissSheetAction: DismissSheetAction) => {
+                if (this.appScaleDirty) {
+                  if (this.appScaleMode !== this.appScaleModeSaved) {
+                    AlertDialog.show({
+                      title: '关闭自定义比例',
+                      message: '关闭后需重启应用才完全跟随系统设置。是否现在重启？',
+                      autoCancel: false,
+                      primaryButton: {
+                        value: '取消',
+                        fontColor: this.isDarkMode ? '#FFFFFF' : '#000000',
+                        action: () => {
+                          this.appScaleMode = this.appScaleModeSaved;
+                          this.appUiScale = this.appUiScaleSaved;
+                          this.appFontScale = this.appFontScaleSaved;
+                          this.appScaleDirty = false;
+                          dismissSheetAction.dismiss();
+                        }
+                      },
+                      secondaryButton: {
+                        value: '重启',
+                        fontColor: '#E84040',
+                        action: () => { this.persistAndRestartApp(this.appScaleMode); }
+                      }
+                    });
+                  } else {
+                    AlertDialog.show({
+                      title: '退出应用比例调节',
+                      message: '有未应用的比例更改，退出后将丢失。是否退出？',
+                      autoCancel: false,
+                      primaryButton: {
+                        value: '取消',
+                        fontColor: this.isDarkMode ? '#FFFFFF' : '#000000',
+                        action: () => {}
+                      },
+                      secondaryButton: {
+                        value: '退出',
+                        fontColor: '#E84040',
+                        action: () => {
+                          this.appUiScale = this.appUiScaleSaved;
+                          this.appFontScale = this.appFontScaleSaved;
+                          this.appScaleDirty = false;
+                          dismissSheetAction.dismiss();
+                        }
+                      }
+                    });
+                  }
+                } else {
+                  dismissSheetAction.dismiss();
+                }
               }
             })
+          }
+          .width('94%')
+          .borderRadius(15)
+          .backgroundColor(this.getCardItemBg())
+          // .shadow({
+          //   radius: 50,
+          //   color: '#80000000',
+          //   offsetX: 0,
+          //   offsetY: 15
+          // })
+
+          // ── 5. 播放与推荐分组卡片 ──
+          this.SectionHeader('播放与推荐')
+          Column() {
+            Row() {
+              Text('画质')
+                .fontSize(16)
+                .fontColor($r('sys.color.font_primary'))
+                .layoutWeight(1)
+              Text(this.qualityLabel)
+                .fontSize(14)
+                .fontColor($r('sys.color.font_secondary'))
+                .margin({ right: 8 })
+              SymbolGlyph($r('sys.symbol.chevron_right'))
+                .fontSize(14)
+                .fontColor([$r('sys.color.icon_secondary')])
+                .bindMenu(this.isQualityMenuShow, this.QualityMenuBuilder(), {
+                  onDisappear: () => { this.isQualityMenuShow = false; }
+                })
+            }
+            .width('100%')
+            .height(56)
+            .padding({ left: 16, right: 16 })
+            .alignItems(VerticalAlign.Center)
+            .onClick(() => { this.isQualityMenuShow = true; })
+
+            Divider()
+
+            Row() {
+              Text('推荐源')
+                .fontSize(16)
+                .fontColor($r('sys.color.font_primary'))
+                .layoutWeight(1)
+              Text(`${this.recommendApiSource} API`)
+                .fontSize(14)
+                .fontColor($r('sys.color.font_secondary'))
+                .margin({ right: 8 })
+              SymbolGlyph($r('sys.symbol.chevron_right'))
+                .fontSize(14)
+                .fontColor([$r('sys.color.icon_secondary')])
+                .bindMenu(this.isRecommendMenuShow, this.RecommendApiMenuBuilder(), {
+                  onDisappear: () => { this.isRecommendMenuShow = false; }
+                })
+            }
+            .width('100%')
+            .height(56)
+            .padding({ left: 16, right: 16 })
+            .alignItems(VerticalAlign.Center)
+            .onClick(() => { this.isRecommendMenuShow = true; })
+
+            Divider()
+
+            Row() {
+              Text('弹幕数据源')
+                .fontSize(16)
+                .fontColor($r('sys.color.font_primary'))
+                .layoutWeight(1)
+              Text(this.danmakuApiSource === 'xml' ? 'XML' : 'gRPC')
+                .fontSize(14)
+                .fontColor($r('sys.color.font_secondary'))
+                .margin({ right: 8 })
+              SymbolGlyph($r('sys.symbol.chevron_right'))
+                .fontSize(14)
+                .fontColor([$r('sys.color.icon_secondary')])
+                .bindMenu(this.isDanmakuMenuShow, this.DanmakuApiMenuBuilder(), {
+                  onDisappear: () => { this.isDanmakuMenuShow = false; }
+                })
+            }
+            .width('100%')
+            .height(56)
+            .padding({ left: 16, right: 16 })
+            .alignItems(VerticalAlign.Center)
+            .onClick(() => { this.isDanmakuMenuShow = true; })
+          }
+          .width('94%')
+          .borderRadius(15)
+          .backgroundColor(this.getCardItemBg())
+          // .shadow({
+          //   radius: 50,
+          //   color: '#80000000',
+          //   offsetX: 0,
+          //   offsetY: 15
+          // })
+
+          // ── 6. 首页轮播分组卡片 ──
+          this.SectionHeader('首页轮播')
+          Column() {
+            // ── 折叠头：轮播选项 ──
+            Row() {
+              Text('轮播选项')
+                .fontSize(16)
+                .fontColor($r('sys.color.font_primary'))
+                .layoutWeight(1)
+              SymbolGlyph($r('sys.symbol.chevron_right'))
+                .fontSize(14)
+                .fontColor([$r('sys.color.icon_secondary')])
+                .rotate({ angle: this.carouselExpanded ? 90 : 0 })
+                .animation({ duration: 200, curve: Curve.FastOutSlowIn })
+            }
+            .width('100%')
+            .height(56)
+            .padding({ left: 16, right: 16 })
+            .alignItems(VerticalAlign.Center)
             .onClick(() => {
               this.carouselExpanded = !this.carouselExpanded;
             })
 
-            // ── 展开后的 4 个选项 ──
             if (this.carouselExpanded) {
-              // 竖屏轮播图
-              Row() {
-                Row() {
-                  Image($r('app.media.ic_public_devices_phone_filled'))
-                    .width(24).height(24)
-                    .fillColor(this.isDarkMode ? '#E5E5E5' : '#333333')
-                    .margin({ right: 14 })
-                  Text('竖屏轮播图')
-                    .fontSize(15)
-                    .fontColor(this.isDarkMode ? '#FFFFFF' : '#000000')
-                    .fontWeight(FontWeight.Medium)
-                    .maxLines(1)
-                    .textOverflow({ overflow: TextOverflow.Ellipsis })
-                    .flexShrink(1)
-                  Blank()
-                  Toggle({ type: ToggleType.Switch, isOn: this.showHomeCarouselPortrait })
-                    .selectedColor(this.customThemeColor)
-                    .switchPointColor(Color.White)
-                    .scale({ x: 0.85, y: 0.85 })
-                    .onChange(async (value: boolean) => {
-                      AppStorage.set('showHomeCarouselPortrait', value);
-                      try {
-                        const p = await preferences.getPreferences(this.getUIContext().getHostContext() as common.UIAbilityContext, 'my_app_settings');
-                        await p.put('showHomeCarouselPortrait', value);
-                        await p.flush();
-                      } catch (_) {}
-                    })
-                }
-                .width('100%')
-                .height(48)
-                .padding({ left: 14, right: 14 })
-                .borderRadius(17)
-                .backgroundColor(this.pressedHighlightId === '竖屏轮播图'
-                  ? (this.isDarkMode ? 'rgba(255,255,255,0.18)' : 'rgba(124,124,124,0.4)')
-                  : 'transparent')
-                .animation({ duration: 250, curve: Curve.Friction })
-                .clickEffect({ level: 2, scale: 0.93 })
-                .onTouch((e: TouchEvent) => {
-                  if (e.type === TouchType.Down) {
-                    this.pressedHighlightId = '竖屏轮播图';
-                  } else if (e.type === TouchType.Up || e.type === TouchType.Cancel) {
-                    this.pressedHighlightId = '';
-                  }
-                })
-              }
-              .width('100%')
-              .height(48)
-
-              // 竖屏轮播背景
-              Row() {
-                Row() {
-                  Image($r('app.media.ic_settings_wallpaper'))
-                    .width(24).height(24)
-                    .fillColor(this.isDarkMode ? '#E5E5E5' : '#333333')
-                    .margin({ right: 14 })
-                  Text('竖屏轮播背景')
-                    .fontSize(15)
-                    .fontColor(this.isDarkMode ? '#FFFFFF' : '#000000')
-                    .fontWeight(FontWeight.Medium)
-                    .maxLines(1)
-                    .textOverflow({ overflow: TextOverflow.Ellipsis })
-                    .flexShrink(1)
-                  Blank()
-                  Toggle({ type: ToggleType.Switch, isOn: this.showCarouselBgPortrait })
-                    .selectedColor(this.customThemeColor)
-                    .switchPointColor(Color.White)
-                    .scale({ x: 0.85, y: 0.85 })
-                    .onChange(async (value: boolean) => {
-                      AppStorage.set('showCarouselBgPortrait', value);
-                      try {
-                        const p = await preferences.getPreferences(this.getUIContext().getHostContext() as common.UIAbilityContext, 'my_app_settings');
-                        await p.put('showCarouselBgPortrait', value);
-                        await p.flush();
-                      } catch (_) {}
-                    })
-                }
-                .width('100%')
-                .height(48)
-                .padding({ left: 14, right: 14 })
-                .borderRadius(17)
-                .backgroundColor(this.pressedHighlightId === '竖屏轮播背景'
-                  ? (this.isDarkMode ? 'rgba(255,255,255,0.18)' : 'rgba(124,124,124,0.4)')
-                  : 'transparent')
-                .animation({ duration: 250, curve: Curve.Friction })
-                .clickEffect({ level: 2, scale: 0.93 })
-                .onTouch((e: TouchEvent) => {
-                  if (e.type === TouchType.Down) {
-                    this.pressedHighlightId = '竖屏轮播背景';
-                  } else if (e.type === TouchType.Up || e.type === TouchType.Cancel) {
-                    this.pressedHighlightId = '';
-                  }
-                })
-              }
-              .width('100%')
-              .height(48)
-
-              // 横屏轮播图
-              Row() {
-                Row() {
-                  Image($r('app.media.ic_public_devices_phone_filled'))
-                    .width(24).height(24)
-                    .fillColor(this.isDarkMode ? '#E5E5E5' : '#333333')
-                    .margin({ right: 14 })
-                    .rotate({ angle: 90 })
-                  Text('横屏轮播图')
-                    .fontSize(15)
-                    .fontColor(this.isDarkMode ? '#FFFFFF' : '#000000')
-                    .fontWeight(FontWeight.Medium)
-                    .maxLines(1)
-                    .textOverflow({ overflow: TextOverflow.Ellipsis })
-                    .flexShrink(1)
-                  Blank()
-                  Toggle({ type: ToggleType.Switch, isOn: this.showHomeCarouselLandscape })
-                    .selectedColor(this.customThemeColor)
-                    .switchPointColor(Color.White)
-                    .scale({ x: 0.85, y: 0.85 })
-                    .onChange(async (value: boolean) => {
-                      AppStorage.set('showHomeCarouselLandscape', value);
-                      try {
-                        const p = await preferences.getPreferences(this.getUIContext().getHostContext() as common.UIAbilityContext, 'my_app_settings');
-                        await p.put('showHomeCarouselLandscape', value);
-                        await p.flush();
-                      } catch (_) {}
-                    })
-                }
-                .width('100%')
-                .height(48)
-                .padding({ left: 14, right: 14 })
-                .borderRadius(17)
-                .backgroundColor(this.pressedHighlightId === '横屏轮播图'
-                  ? (this.isDarkMode ? 'rgba(255,255,255,0.18)' : 'rgba(124,124,124,0.4)')
-                  : 'transparent')
-                .animation({ duration: 250, curve: Curve.Friction })
-                .clickEffect({ level: 2, scale: 0.93 })
-                .onTouch((e: TouchEvent) => {
-                  if (e.type === TouchType.Down) {
-                    this.pressedHighlightId = '横屏轮播图';
-                  } else if (e.type === TouchType.Up || e.type === TouchType.Cancel) {
-                    this.pressedHighlightId = '';
-                  }
-                })
-              }
-              .width('100%')
-              .height(48)
-
-              // 横屏轮播背景
-              Row() {
-                Row() {
-                  Image($r('app.media.ic_settings_wallpaper'))
-                    .width(24).height(24)
-                    .fillColor(this.isDarkMode ? '#E5E5E5' : '#333333')
-                    .margin({ right: 14 })
-                  Text('横屏轮播背景')
-                    .fontSize(15)
-                    .fontColor(this.isDarkMode ? '#FFFFFF' : '#000000')
-                    .fontWeight(FontWeight.Medium)
-                    .maxLines(1)
-                    .textOverflow({ overflow: TextOverflow.Ellipsis })
-                    .flexShrink(1)
-                  Blank()
-                  Toggle({ type: ToggleType.Switch, isOn: this.showCarouselBgLandscape })
-                    .selectedColor(this.customThemeColor)
-                    .switchPointColor(Color.White)
-                    .scale({ x: 0.85, y: 0.85 })
-                    .onChange(async (value: boolean) => {
-                      AppStorage.set('showCarouselBgLandscape', value);
-                      try {
-                        const p = await preferences.getPreferences(this.getUIContext().getHostContext() as common.UIAbilityContext, 'my_app_settings');
-                        await p.put('showCarouselBgLandscape', value);
-                        await p.flush();
-                      } catch (_) {}
-                    })
-                }
-                .width('100%')
-                .height(48)
-                .padding({ left: 14, right: 14 })
-                .borderRadius(17)
-                .backgroundColor(this.pressedHighlightId === '横屏轮播背景'
-                  ? (this.isDarkMode ? 'rgba(255,255,255,0.18)' : 'rgba(124,124,124,0.4)')
-                  : 'transparent')
-                .animation({ duration: 250, curve: Curve.Friction })
-                .clickEffect({ level: 2, scale: 0.93 })
-                .onTouch((e: TouchEvent) => {
-                  if (e.type === TouchType.Down) {
-                    this.pressedHighlightId = '横屏轮播背景';
-                  } else if (e.type === TouchType.Up || e.type === TouchType.Cancel) {
-                    this.pressedHighlightId = '';
-                  }
-                })
-              }
-              .width('100%')
-              .height(48)
-
-              // 背景圆角（0-40vp，默认 30）：仅作用于首页背景层顶部两角
+              Divider()
+              this.HividToggleRow('竖屏轮播图', this.showHomeCarouselPortrait, async (value: boolean) => {
+                AppStorage.set('showHomeCarouselPortrait', value);
+                try {
+                  const p = await preferences.getPreferences(this.getUIContext().getHostContext() as common.UIAbilityContext, 'my_app_settings');
+                  await p.put('showHomeCarouselPortrait', value);
+                  await p.flush();
+                } catch (_) {}
+              })
+              Divider()
+              this.HividToggleRow('竖屏轮播背景', this.showCarouselBgPortrait, async (value: boolean) => {
+                AppStorage.set('showCarouselBgPortrait', value);
+                try {
+                  const p = await preferences.getPreferences(this.getUIContext().getHostContext() as common.UIAbilityContext, 'my_app_settings');
+                  await p.put('showCarouselBgPortrait', value);
+                  await p.flush();
+                } catch (_) {}
+              })
+              Divider()
+              this.HividToggleRow('横屏轮播图', this.showHomeCarouselLandscape, async (value: boolean) => {
+                AppStorage.set('showHomeCarouselLandscape', value);
+                try {
+                  const p = await preferences.getPreferences(this.getUIContext().getHostContext() as common.UIAbilityContext, 'my_app_settings');
+                  await p.put('showHomeCarouselLandscape', value);
+                  await p.flush();
+                } catch (_) {}
+              })
+              Divider()
+              this.HividToggleRow('横屏轮播背景', this.showCarouselBgLandscape, async (value: boolean) => {
+                AppStorage.set('showCarouselBgLandscape', value);
+                try {
+                  const p = await preferences.getPreferences(this.getUIContext().getHostContext() as common.UIAbilityContext, 'my_app_settings');
+                  await p.put('showCarouselBgLandscape', value);
+                  await p.flush();
+                } catch (_) {}
+              })
+              Divider()
               Column() {
                 Row() {
-                  Image($r('app.media.ic_settings_wallpaper'))
-                    .width(24).height(24)
-                    .fillColor(this.isDarkMode ? '#E5E5E5' : '#333333')
-                    .margin({ right: 14 })
                   Text('背景圆角')
-                    .fontSize(15)
-                    .fontColor(this.isDarkMode ? '#FFFFFF' : '#000000')
-                    .fontWeight(FontWeight.Medium)
+                    .fontSize(16)
+                    .fontColor($r('sys.color.font_primary'))
                   Blank()
                   Text(`${this.carouselBgRadius}vp`)
                     .fontSize(14)
@@ -2215,7 +1727,6 @@ export struct ProfilePage {
                     .selectedColor(this.customThemeColor)
                     .blockColor('#FFFFFF')
                     .onChange((value: number, mode: SliderChangeMode) => {
-                      // 拖动中只更新状态（@StorageLink 双向写回，首页实时预览）；松手/点击才落盘
                       this.carouselBgRadius = Math.round(value);
                       if (mode === SliderChangeMode.End || mode === SliderChangeMode.Click) {
                         this.saveCarouselBgRadius(Math.round(value));
@@ -2226,59 +1737,26 @@ export struct ProfilePage {
                 .height(32)
               }
               .width('100%')
-              .padding({ left: 14, right: 14, top: 6, bottom: 6 })
-              .borderRadius(17)
+              .padding({ left: 16, right: 16, top: 8, bottom: 8 })
             }
-          }
-          .width('100%')
-          .backgroundColor(this.getCardItemBg())
-          .borderRadius(20)
-          .padding({ top: 4, bottom: 4 })
-          .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
-          .margin({ bottom: 8 })
 
-          // ── 轮播图标题选项 ──
-          Column() {
-            // ── 折叠头 ──
+            Divider()
+            // ── 折叠头：轮播图标题选项 ──
             Row() {
-              Row() {
-                Image($r('app.media.ic_public_edit_filled'))
-                  .width(24).height(24)
-                  .fillColor(this.isDarkMode ? '#E5E5E5' : '#333333')
-                  .margin({ right: 14 })
-                Text('轮播图标题选项')
-                  .fontSize(15)
-                  .fontColor(this.isDarkMode ? '#FFFFFF' : '#000000')
-                  .fontWeight(FontWeight.Medium)
-                  .maxLines(1)
-                  .textOverflow({ overflow: TextOverflow.Ellipsis })
-                  .flexShrink(1)
-                Blank()
-                Image($r('app.media.ic_public_arrow_left_filled'))
-                  .width(20).height(20)
-                  .fillColor(this.isDarkMode ? '#E5E5E5' : '#333333')
-                  .rotate({ angle: this.carouselTitleExpanded ? 90 : -90 })
-                  .animation({ duration: 200, curve: Curve.FastOutSlowIn })
-              }
-              .width('100%')
-              .height(48)
-              .padding({ left: 18, right: 18 })
+              Text('轮播图标题选项')
+                .fontSize(16)
+                .fontColor($r('sys.color.font_primary'))
+                .layoutWeight(1)
+              SymbolGlyph($r('sys.symbol.chevron_right'))
+                .fontSize(14)
+                .fontColor([$r('sys.color.icon_secondary')])
+                .rotate({ angle: this.carouselTitleExpanded ? 90 : 0 })
+                .animation({ duration: 200, curve: Curve.FastOutSlowIn })
             }
             .width('100%')
-            .height(48)
-            .borderRadius(17)
-            .backgroundColor(this.pressedHighlightId === '轮播图标题选项'
-              ? (this.isDarkMode ? 'rgba(255,255,255,0.18)' : 'rgba(124,124,124,0.4)')
-              : 'transparent')
-            .animation({ duration: 250, curve: Curve.Friction })
-            .clickEffect({ level: 2, scale: 0.93 })
-            .onTouch((e: TouchEvent) => {
-              if (e.type === TouchType.Down) {
-                this.pressedHighlightId = '轮播图标题选项';
-              } else if (e.type === TouchType.Up || e.type === TouchType.Cancel) {
-                this.pressedHighlightId = '';
-              }
-            })
+            .height(56)
+            .padding({ left: 16, right: 16 })
+            .alignItems(VerticalAlign.Center)
             .onClick(() => {
               this.carouselTitleExpanded = !this.carouselTitleExpanded;
             })
@@ -2359,7 +1837,7 @@ export struct ProfilePage {
               .backgroundColor(this.isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.70)')
               .borderRadius(20)
               .padding({ left: 18, right: 18, top: 12, bottom: 12 })
-              .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
+              // .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
               .margin({ bottom: 12 })
 
               // 文字粗细（0=常规, 1=中等, 2=加粗）
@@ -2406,7 +1884,7 @@ export struct ProfilePage {
               .backgroundColor(this.isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.70)')
               .borderRadius(20)
               .padding({ left: 18, right: 18, top: 12, bottom: 12 })
-              .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
+              // .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
               .margin({ bottom: 12 })
 
               // 字体间距（0-5）
@@ -2452,7 +1930,7 @@ export struct ProfilePage {
               .backgroundColor(this.isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.70)')
               .borderRadius(20)
               .padding({ left: 18, right: 18, top: 12, bottom: 12 })
-              .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
+              // .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
               .margin({ bottom: 12 })
 
               // 胶囊高度（32-40）
@@ -2498,7 +1976,7 @@ export struct ProfilePage {
               .backgroundColor(this.isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.70)')
               .borderRadius(20)
               .padding({ left: 18, right: 18, top: 12, bottom: 12 })
-              .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
+              // .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
               .margin({ bottom: 12 })
 
               // 胶囊宽度（20%-100%，占轮播可见宽度比例）
@@ -2544,364 +2022,190 @@ export struct ProfilePage {
               .backgroundColor(this.isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.70)')
               .borderRadius(20)
               .padding({ left: 18, right: 18, top: 12, bottom: 12 })
-              .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
+              // .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
               .margin({ bottom: 12 })
               }
               .width('100%')
               .padding({ left: 12, right: 12 })
             }
           }
-          .width('100%')
+          .width('94%')
+          .borderRadius(15)
           .backgroundColor(this.getCardItemBg())
-          .borderRadius(20)
-          .padding({ top: 4, bottom: 4 })
-          .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
-          .margin({ bottom: 8 })
+          // .shadow({
+          //   radius: 50,
+          //   color: '#80000000',
+          //   offsetX: 0,
+          //   offsetY: 15
+          // })
 
-          // ── 功能开关 ──
+          // ── 7. 功能开关分组卡片 ──
           this.SectionHeader('功能开关')
-          this.SettingItemWithToggle($r('app.media.ic_public_search_filled'), '搜索发现', this.showSearchDiscovery, (value: boolean) => { AppStorage.set('showSearchDiscovery', value); }, 8)
-          this.SettingItemWithToggle($r('app.media.ic_public_devices_phone_filled'), '直板机布局', this.phoneLayoutToggle, (value: boolean) => {
-            // 直板机布局需要在播放页/首页重新加载时生效 → 保存后重启
-            this.showPhoneLayoutRestartPrompt(value);
-          }, 8)
-          this.SettingItemWithToggle($r('app.media.arrow_clockwise'), '上次看到这里', this.showRefreshSeparator, async (value: boolean) => {
-            AppStorage.set('showRefreshSeparator', value);
-            try {
-              const p = await preferences.getPreferences(this.getUIContext().getHostContext() as common.UIAbilityContext, 'my_app_settings');
-              await p.put('showRefreshSeparator', value);
-              await p.flush();
-            } catch (_) {}
-          }, 8)
-          this.SettingItemWithToggle($r('app.media.message'), '消息页 Tab 自动隐藏', this.msgTabAutoHide, async (value: boolean) => {
-            AppStorage.set('msgTabAutoHide', value);
-            try {
-              const p = await preferences.getPreferences(this.getUIContext().getHostContext() as common.UIAbilityContext, 'my_app_settings');
-              await p.put('msgTabAutoHide', value);
-              await p.flush();
-            } catch (_) {}
-          }, 8)
-          // ⭐「显示动态页」— 关闭后底部 Tab 栏与页面一起移除（重启/切换深浅色后仍保持）
-          this.SettingItemWithToggle($r('app.media.discover_fill'), '显示动态页', this.showDynamicsTab, async (value: boolean) => {
-            AppStorage.set('showDynamicsTab', value);
-            this.getUIContext().getPromptAction().showToast({
-              message: value ? '已显示动态页' : '已隐藏动态页（重启应用后底栏不再显示）',
-              duration: 2000
-            });
-            try {
-              const p = await preferences.getPreferences(this.getUIContext().getHostContext() as common.UIAbilityContext, 'my_app_settings');
-              await p.put('showDynamicsTab', value);
-              await p.flush();
-            } catch (_) {}
-          }, 8)
-          // ⭐「显示消息页」— 关闭后底部 Tab 栏与页面一起移除（重启/切换深浅色后仍保持）
-          this.SettingItemWithToggle($r('app.media.message'), '显示消息页', this.showWhisperTab, async (value: boolean) => {
-            AppStorage.set('showWhisperTab', value);
-            this.getUIContext().getPromptAction().showToast({
-              message: value ? '已显示消息页' : '已隐藏消息页（重启应用后底栏不再显示）',
-              duration: 2000
-            });
-            try {
-              const p = await preferences.getPreferences(this.getUIContext().getHostContext() as common.UIAbilityContext, 'my_app_settings');
-              await p.put('showWhisperTab', value);
-              await p.flush();
-            } catch (_) {}
-          }, 8)
-          // ⚠️「动态页点击切换分类」（默认打开）—— 打开 = 只能点顶部胶囊/分类按钮切分类；关闭 = 恢复左右横滑切分类
-          this.SettingItemWithToggle($r('app.media.discover_fill'), '动态页点击切换分类', this.dynFilterTapOnly, async (value: boolean) => {
-            AppStorage.set('dynFilterTapOnly', value);
-            // 明确告诉用户当前效果（关闭 = 恢复横滑）
-            this.getUIContext().getPromptAction().showToast({
-              message: value ? '已开启：只能点击顶部按钮切换分类' : '已关闭：动态页可左右横滑切换分类',
-              duration: 2000
-            });
-            try {
-              const p = await preferences.getPreferences(this.getUIContext().getHostContext() as common.UIAbilityContext, 'my_app_settings');
-              await p.put('dynFilterTapOnly', value);
-              await p.flush();
-            } catch (_) {}
-          }, 8, '关闭后：动态页可左右横滑切换分类')
-          // ⚠️「首页点击切换分类」（默认关闭）—— 关闭 = 允许左右横滑切频道；打开 = 只能点顶部胶囊/分类按钮切频道
-          this.SettingItemWithToggle($r('app.media.house'), '首页点击切换分类', this.homeFilterTapOnly, async (value: boolean) => {
-            AppStorage.set('homeFilterTapOnly', value);
-            // 明确告诉用户当前效果（关闭 = 恢复横滑）
-            this.getUIContext().getPromptAction().showToast({
-              message: value ? '已开启：只能点击顶部按钮切换分类' : '已关闭：首页可左右横滑切换分类',
-              duration: 2000
-            });
-            try {
-              const p = await preferences.getPreferences(this.getUIContext().getHostContext() as common.UIAbilityContext, 'my_app_settings');
-              await p.put('homeFilterTapOnly', value);
-              await p.flush();
-            } catch (_) {}
-          }, 8, '关闭后：首页可左右横滑切换分类')
-          this.SettingItemWithToggle($r('app.media.hand_point_up_tap_fill_1'), '上滑评论缩小视频', this.shrinkVideoOnScroll, async (value: boolean) => {
-            AppStorage.set('shrinkVideoOnScroll', value);
-            try {
-              const p = await preferences.getPreferences(this.getUIContext().getHostContext() as common.UIAbilityContext, 'my_app_settings');
-              await p.put('shrinkVideoOnScroll', value);
-              await p.flush();
-            } catch (_) {}
-          })
+          Column() {
+            this.HividToggleRow('搜索发现', this.showSearchDiscovery, (value: boolean) => {
+              AppStorage.set('showSearchDiscovery', value);
+            })
+            Divider()
+            this.HividToggleRow('直板机布局', this.phoneLayoutToggle, (value: boolean) => {
+              this.showPhoneLayoutRestartPrompt(value);
+            })
+            Divider()
+            this.HividToggleRow('上次看到这里', this.showRefreshSeparator, async (value: boolean) => {
+              AppStorage.set('showRefreshSeparator', value);
+              try {
+                const p = await preferences.getPreferences(this.getUIContext().getHostContext() as common.UIAbilityContext, 'my_app_settings');
+                await p.put('showRefreshSeparator', value);
+                await p.flush();
+              } catch (_) {}
+            })
+            Divider()
+            this.HividToggleRow('消息页 Tab 自动隐藏', this.msgTabAutoHide, async (value: boolean) => {
+              AppStorage.set('msgTabAutoHide', value);
+              try {
+                const p = await preferences.getPreferences(this.getUIContext().getHostContext() as common.UIAbilityContext, 'my_app_settings');
+                await p.put('msgTabAutoHide', value);
+                await p.flush();
+              } catch (_) {}
+            })
+            Divider()
+            this.HividToggleRow('动态页点击切换分类', this.dynFilterTapOnly, async (value: boolean) => {
+              AppStorage.set('dynFilterTapOnly', value);
+              this.getUIContext().getPromptAction().showToast({
+                message: value ? '已开启：只能点击顶部按钮切换分类' : '已关闭：动态页可左右横滑切换分类',
+                duration: 2000
+              });
+              try {
+                const p = await preferences.getPreferences(this.getUIContext().getHostContext() as common.UIAbilityContext, 'my_app_settings');
+                await p.put('dynFilterTapOnly', value);
+                await p.flush();
+              } catch (_) {}
+            }, '关闭后：动态页可左右横滑切换分类')
+            Divider()
+            this.HividToggleRow('首页点击切换分类', this.homeFilterTapOnly, async (value: boolean) => {
+              AppStorage.set('homeFilterTapOnly', value);
+              this.getUIContext().getPromptAction().showToast({
+                message: value ? '已开启：只能点击顶部按钮切换分类' : '已关闭：首页可左右横滑切换分类',
+                duration: 2000
+              });
+              try {
+                const p = await preferences.getPreferences(this.getUIContext().getHostContext() as common.UIAbilityContext, 'my_app_settings');
+                await p.put('homeFilterTapOnly', value);
+                await p.flush();
+              } catch (_) {}
+            }, '关闭后：首页可左右横滑切换分类')
+            Divider()
+            this.HividToggleRow('上滑评论缩小视频', this.shrinkVideoOnScroll, async (value: boolean) => {
+              AppStorage.set('shrinkVideoOnScroll', value);
+              try {
+                const p = await preferences.getPreferences(this.getUIContext().getHostContext() as common.UIAbilityContext, 'my_app_settings');
+                await p.put('shrinkVideoOnScroll', value);
+                await p.flush();
+              } catch (_) {}
+            })
+          }
+          .width('94%')
+          .borderRadius(15)
+          .backgroundColor(this.getCardItemBg())
+          // .shadow({
+          //   radius: 50,
+          //   color: '#80000000',
+          //   offsetX: 0,
+          //   offsetY: 15
+          // })
 
+          // ── 8. 关于分组卡片 ──
           this.SectionHeader('关于')
-          this.SettingItem($r('app.media.ic_settings_about'), '关于软件', () => { this.goToAbout(); })
-          if (this.isLoggedIn) {
-            this.SettingItem($r('app.media.backspace_1'), '退出登录', () => { this.showLogoutConfirm(); })
+          Column() {
+            this.HividRowItem('关于软件', () => { this.goToAbout(); })
           }
-        } else {
-            // ── 横屏：双列 ──
-            Row({ space: 12 }) {
-              // 左列：卡片样式 + 动画·背景·色彩（同一个卡片）
-              Column() {
-                // 动画·背景·色彩（原个性化）
-                Stack() {
-                  Row() {
-                    Row()
-                      .width('100%')
-                      .height('100%')
-                      .borderRadius(17)
-                      .backgroundColor(this.pressedHighlightId === '动画·背景·色彩' ? 'rgba(124,124,124,0.4)' : 'transparent')
-                      .animation({ duration: 250, curve: Curve.Friction })
-                      .clickEffect({ level: 2, scale: 0.93 })
-                  }
-                    .width('100%')
-                    .height('100%')
-
-                  Row() {
-                    Image($r('app.media.ic_settings_personalize'))
-                      .width(24).height(24)
-                      .fillColor(this.isDarkMode ? '#E5E5E5' : '#333333')
-                      .margin({ right: 14 })
-                    Column() {
-                      Text('个性化')
-                        .fontSize(16)
-                        .fontColor(this.isDarkMode ? '#E5E5E5' : '#333333')
-                        .fontWeight(FontWeight.Medium)
-                        .margin({ bottom: 6 })
-                      Text('动画·背景·色彩')
-                        .fontSize(11)
-                        .fontColor(this.isDarkMode ? '#BBBBBB' : '#666666')
-                        .fontWeight(FontWeight.Normal)
-                    }
-                    .alignItems(HorizontalAlign.Start)
-                    Blank()
-                    Circle()
-                      .width(8)
-                      .height(8)
-                      .fill(this.isDarkMode ? '#E5E5E5' : '#333333')
-                      .margin({ right: 19 })
-                  }
-                  .width('100%')
-                  .height('100%')
-                  .padding({ left: 12, right: 12 })
-                  .clickEffect({ level: 2, scale: 0.93 })
-                }
-                .width('100%')
-                .height(64)
-                .padding({ left: 6, right: 6, top: 10, bottom: 10 })
-                .onTouch((e: TouchEvent) => {
-                  if (e.type === TouchType.Down) {
-                    this.pressedHighlightId = '动画·背景·色彩';
-                  } else if (e.type === TouchType.Up || e.type === TouchType.Cancel) {
-                    this.pressedHighlightId = '';
-                  }
-                })
-                .onClick(() => { this.goToPersonalization(); })
-
-                Divider()
-                  .height(1)
-                  .width('100%')
-                  .color(this.isDarkMode ? '#3C3C3E' : '#E0E0E0')
-                  .margin({ top: 2, bottom: 2 })
-
-                // 卡片样式
-                Stack() {
-                  Row() {
-                    Row()
-                      .width('100%')
-                      .height('100%')
-                      .borderRadius(17)
-                      .backgroundColor(this.pressedHighlightId === '卡片样式' ? 'rgba(124,124,124,0.4)' : 'transparent')
-                      .animation({ duration: 250, curve: Curve.Friction })
-                      .clickEffect({ level: 2, scale: 0.93 })
-                  }
-                    .width('100%')
-                    .height('100%')
-
-                  Row() {
-                    Image($r('app.media.transparency_lock'))
-                      .width(24).height(24)
-                      .fillColor(this.isDarkMode ? '#E5E5E5' : '#333333')
-                      .margin({ right: 14 })
-                    Column() {
-                      Text('卡片样式')
-                        .fontSize(16)
-                        .fontColor(this.isDarkMode ? '#E5E5E5' : '#333333')
-                        .fontWeight(FontWeight.Medium)
-                        .margin({ bottom: 6 })
-                      Text('圆角·边距·色彩')
-                        .fontSize(11)
-                        .fontColor(this.isDarkMode ? '#BBBBBB' : '#666666')
-                        .fontWeight(FontWeight.Normal)
-                    }
-                    .alignItems(HorizontalAlign.Start)
-                    Blank()
-                    Circle()
-                      .width(8)
-                      .height(8)
-                      .fill(this.isDarkMode ? '#E5E5E5' : '#333333')
-                      .margin({ right: 19 })
-                  }
-                  .width('100%')
-                  .height('100%')
-                  .padding({ left: 12, right: 12 })
-                  .clickEffect({ level: 2, scale: 0.93 })
-                }
-                .width('100%')
-                .height(64)
-                .padding({ left: 6, right: 6, top: 10, bottom: 10 })
-                .onTouch((e: TouchEvent) => {
-                  if (e.type === TouchType.Down) {
-                    this.pressedHighlightId = '卡片样式';
-                  } else if (e.type === TouchType.Up || e.type === TouchType.Cancel) {
-                    this.pressedHighlightId = '';
-                  }
-                })
-                .onClick(() => { this.isCardStyleSheetShow = true; })
-              }
-              .layoutWeight(1)
-              .backgroundColor(this.getCardItemBg())
-              .borderRadius(20)
-              .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
-
-              // 右列：播放与推荐 + 功能开关 + 关于
-              Column() {
-                this.SectionHeader('播放与推荐')
-                this.SettingItemWithPicker($r('app.media.ic_settings_quality'), '画质', () => { this.showQualityPicker(); }, 8)
-                this.SettingItemWithPicker($r('app.media.ic_settings_quality'), '推荐源', () => { this.showRecommendApiPicker(); }, 8)
-          this.SettingItemWithPicker($r('app.media.ic_settings_quality'), '弹幕数据源', () => { this.showDanmakuApiPicker(); }, 8)
-          // ⭐ 回桌面自动画中画开关（播放页按此 key 武装/解除自动小窗）
-          this.SettingItemWithToggle($r('app.media.ic_settings_quality'), '自动小窗', this.autoPip, async (value: boolean) => {
-            this.autoPip = value;
-          }, 8, '播放中回到桌面自动以小窗继续播放')
-                this.SectionHeader('功能开关')
-                this.SettingItemWithToggle($r('app.media.ic_public_search_filled'), '搜索发现', this.showSearchDiscovery, (value: boolean) => { AppStorage.set('showSearchDiscovery', value); }, 8)
-                this.SettingItemWithToggle($r('app.media.arrow_clockwise'), '上次看到这里', this.showRefreshSeparator, async (value: boolean) => {
-            AppStorage.set('showRefreshSeparator', value);
-            try {
-              const p = await preferences.getPreferences(this.getUIContext().getHostContext() as common.UIAbilityContext, 'my_app_settings');
-              await p.put('showRefreshSeparator', value);
-              await p.flush();
-            } catch (_) {}
-          }, 8)
-          this.SettingItemWithToggle($r('app.media.message'), '消息页 Tab 自动隐藏', this.msgTabAutoHide, async (value: boolean) => {
-            AppStorage.set('msgTabAutoHide', value);
-            try {
-              const p = await preferences.getPreferences(this.getUIContext().getHostContext() as common.UIAbilityContext, 'my_app_settings');
-              await p.put('msgTabAutoHide', value);
-              await p.flush();
-            } catch (_) {}
-          }, 8)
-          // ⭐「显示动态页」— 关闭后底部 Tab 栏与页面一起移除（重启/切换深浅色后仍保持）
-          this.SettingItemWithToggle($r('app.media.discover_fill'), '显示动态页', this.showDynamicsTab, async (value: boolean) => {
-            AppStorage.set('showDynamicsTab', value);
-            this.getUIContext().getPromptAction().showToast({
-              message: value ? '已显示动态页' : '已隐藏动态页（重启应用后底栏不再显示）',
-              duration: 2000
-            });
-            try {
-              const p = await preferences.getPreferences(this.getUIContext().getHostContext() as common.UIAbilityContext, 'my_app_settings');
-              await p.put('showDynamicsTab', value);
-              await p.flush();
-            } catch (_) {}
-          }, 8)
-          // ⭐「显示消息页」— 关闭后底部 Tab 栏与页面一起移除（重启/切换深浅色后仍保持）
-          this.SettingItemWithToggle($r('app.media.message'), '显示消息页', this.showWhisperTab, async (value: boolean) => {
-            AppStorage.set('showWhisperTab', value);
-            this.getUIContext().getPromptAction().showToast({
-              message: value ? '已显示消息页' : '已隐藏消息页（重启应用后底栏不再显示）',
-              duration: 2000
-            });
-            try {
-              const p = await preferences.getPreferences(this.getUIContext().getHostContext() as common.UIAbilityContext, 'my_app_settings');
-              await p.put('showWhisperTab', value);
-              await p.flush();
-            } catch (_) {}
-          }, 8)
-          // ⚠️「动态页点击切换分类」（默认打开）—— 打开 = 只能点顶部胶囊/分类按钮切分类；关闭 = 恢复左右横滑切分类
-          this.SettingItemWithToggle($r('app.media.discover_fill'), '动态页点击切换分类', this.dynFilterTapOnly, async (value: boolean) => {
-            AppStorage.set('dynFilterTapOnly', value);
-            // 明确告诉用户当前效果（关闭 = 恢复横滑）
-            this.getUIContext().getPromptAction().showToast({
-              message: value ? '已开启：只能点击顶部按钮切换分类' : '已关闭：动态页可左右横滑切换分类',
-              duration: 2000
-            });
-            try {
-              const p = await preferences.getPreferences(this.getUIContext().getHostContext() as common.UIAbilityContext, 'my_app_settings');
-              await p.put('dynFilterTapOnly', value);
-              await p.flush();
-            } catch (_) {}
-          }, 8, '关闭后：动态页可左右横滑切换分类')
-          // ⚠️「首页点击切换分类」（默认关闭）—— 关闭 = 允许左右横滑切频道；打开 = 只能点顶部胶囊/分类按钮切频道
-          this.SettingItemWithToggle($r('app.media.house'), '首页点击切换分类', this.homeFilterTapOnly, async (value: boolean) => {
-            AppStorage.set('homeFilterTapOnly', value);
-            // 明确告诉用户当前效果（关闭 = 恢复横滑）
-            this.getUIContext().getPromptAction().showToast({
-              message: value ? '已开启：只能点击顶部按钮切换分类' : '已关闭：首页可左右横滑切换分类',
-              duration: 2000
-            });
-            try {
-              const p = await preferences.getPreferences(this.getUIContext().getHostContext() as common.UIAbilityContext, 'my_app_settings');
-              await p.put('homeFilterTapOnly', value);
-              await p.flush();
-            } catch (_) {}
-          }, 8, '关闭后：首页可左右横滑切换分类')
-          this.SettingItemWithToggle($r('app.media.hand_point_up_tap_fill_1'), '上滑评论缩小视频', this.shrinkVideoOnScroll, async (value: boolean) => {
-            AppStorage.set('shrinkVideoOnScroll', value);
-            try {
-              const p = await preferences.getPreferences(this.getUIContext().getHostContext() as common.UIAbilityContext, 'my_app_settings');
-              await p.put('shrinkVideoOnScroll', value);
-              await p.flush();
-            } catch (_) {}
-          })
-                this.SectionHeader('关于')
-                this.SettingItem($r('app.media.ic_settings_about'), '关于软件', () => { this.goToAbout(); })
-                if (this.isLoggedIn) {
-                  this.SettingItem($r('app.media.backspace_1'), '退出登录', () => { this.showLogoutConfirm(); })
-                }
-              }
-              .layoutWeight(1)
-            }
-            .width('100%')
-            .alignItems(VerticalAlign.Top)
-          }
+          .width('94%')
+          .borderRadius(15)
+          .backgroundColor(this.getCardItemBg())
+          // .shadow({
+          //   radius: 50,
+          //   color: '#80000000',
+          //   offsetX: 0,
+          //   offsetY: 15
+          // })
         }
         .width('100%')
-        .padding({ left: 16, right: 16, bottom: 96 })
+        .padding({ top: this.hideStatusBar ? 56 : (this.statusBarHeight + 56), bottom: 96 })
         .clip(false)
       }
-      .scrollBar(BarState.Off).edgeEffect(EdgeEffect.Spring).backgroundColor('transparent')
-      .padding({ top: this.hideStatusBar ? 16 : (this.statusBarHeight + 16) })
-      .bindSheet($$this.isCardStyleSheetShow, this.CardStyleSheetContent(), {
-        // 卡片样式弹层：固定高度 + 内部滚动（顶部分类布局）
+      .scrollBar(BarState.Off)
+      .edgeEffect(EdgeEffect.Spring)
+      .backgroundColor('transparent')
+      .bindSheet($$this.isCardStyleSheetShow, this.CardStyleSheetContent, {
         height: '80%',
-        dragBar: false,
+        backgroundColor: undefined,
         showClose: false,
-        width: SheetSize.LARGE,
-        backgroundColor: this.isDarkMode ? '#1C1C1E' : '#F5F5F5',
+        preferType: SheetType.CENTER,
         onDisappear: () => { this.isCardStyleSheetShow = false; }
       })
     }
+    .titleBar({
+      avoidLayoutSafeArea: true,
+      padding: { start: LengthMetrics.vp(16), end: LengthMetrics.vp(16) },
+      style: {
+        scrollEffectOpts: {
+          enableScrollEffect: true,
+          scrollEffectType: ScrollEffectType.GRADIENT_BLUR,
+          blurEffectiveStartOffset: LengthMetrics.vp(0),
+          blurEffectiveEndOffset: LengthMetrics.vp(20)
+        },
+        systemMaterialEffect: {
+          materialType: hdsMaterial.MaterialType.ADAPTIVE,
+          materialLevel: hdsMaterial.MaterialLevel.EXQUISITE
+        },
+        originalStyle: {
+          backgroundStyle: { backgroundColor: 'transparent' },
+          contentStyle: {
+            titleStyle: { mainTitleColor: $r('sys.color.font_primary'), subTitleColor: $r('sys.color.font_secondary') },
+            menuStyle: { backgroundColor: $r('sys.color.comp_background_tertiary'), iconColor: $r('sys.color.icon_primary') },
+            backIconStyle: { backgroundColor: $r('sys.color.comp_background_tertiary'), iconColor: $r('sys.color.icon_primary') }
+          }
+        },
+        scrollEffectStyle: {
+          backgroundStyle: { backgroundColor: 'transparent' },
+          contentStyle: {
+            titleStyle: { mainTitleColor: $r('sys.color.font_primary'), subTitleColor: $r('sys.color.font_secondary') },
+            menuStyle: { backgroundColor: $r('sys.color.comp_background_tertiary'), iconColor: $r('sys.color.icon_primary') },
+            backIconStyle: { backgroundColor: $r('sys.color.comp_background_tertiary'), iconColor: $r('sys.color.icon_primary') }
+          }
+        }
+      },
+      content: {
+        title: {
+          mainTitle: '我的'
+        },
+        menu: {
+          value: this.isLoggedIn ? [
+            {
+              content: {
+                icon: $r('sys.symbol.power'),
+                label: '退出登录',
+                isEnabled: true,
+                action: (): void => {
+                  this.showLogoutConfirm();
+                }
+              }
+            }
+          ] : []
+        }
+      }
+    })
+    .titleMode(HdsNavigationTitleMode.MINI)
+    .hideBackButton(true)
+    .mode(NavigationMode.Stack)
     .width('100%')
     .height('100%')
     .backgroundColor('transparent')
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
-    .bindSheet($$this.isPersonalizationSheetShow, this.PersonalizationSheetContent(), {
-      height: SheetSize.FIT_CONTENT,
-      dragBar: false,
+    .bindSheet($$this.isPersonalizationSheetShow, this.PersonalizationSheetContent, {
+      height: '80%',
+      backgroundColor: undefined,
       showClose: false,
-      backgroundColor: this.isDarkMode ? '#1C1C1E' : '#F5F5F5',
+      preferType: SheetType.CENTER,
       onDisappear: () => { this.isPersonalizationSheetShow = false; }
     })
   }
