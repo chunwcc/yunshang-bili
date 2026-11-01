@@ -1,7 +1,14 @@
-﻿// PersonalizationPage.ets - 个性化设置（隐藏状态栏、锁定屏幕旋转、默认画质、选择壁纸）
+// PersonalizationPage.ets - 个性化设置（隐藏状态栏、锁定屏幕旋转、默认画质、选择壁纸）
 import { common } from '@kit.AbilityKit';
 import { logInfo, logWarn, logError } from '../utils/Logger';
-import { window } from '@kit.ArkUI';
+import { LengthMetrics, window } from '@kit.ArkUI';
+import {
+  hdsMaterial,
+  HdsNavigation,
+  HdsNavigationTitleMode,
+  IconStyleMode,
+  ScrollEffectType
+} from '@kit.UIDesignKit';
 import { image } from '@kit.ImageKit';
 import { photoAccessHelper } from '@kit.MediaLibraryKit';
 import { fileIo } from '@kit.CoreFileKit';
@@ -111,6 +118,8 @@ const SHRINK_SIZE_DEFAULT: number = 120;
 export struct PersonalizationPage {
   onClose?: () => void;
   @StorageLink('isDarkMode') isDarkMode: boolean = false;
+  @StorageLink('cardTransparentStyle') cardTransparentStyle: boolean = false;
+  @StorageLink('cardBgOpacity') cardBgOpacity: number = 15;
   @StorageLink('hideStatusBar') hideStatusBar: boolean = false;
   @StorageLink('screenOrientationLock') screenOrientationLock: string = '自动旋转';
   @StorageLink('wallpaper') wallpaper: string = 'builtin';
@@ -174,6 +183,7 @@ export struct PersonalizationPage {
   /** ⭐ 小窗尺寸落盘防抖句柄 */
   private sizeSaveTimer_: number = -1;
   @State isFloatBtnSpeedMenuShow: boolean = false;
+  @State isOrientationMenuShow: boolean = false;
   private canvasCtx: CanvasRenderingContext2D = new CanvasRenderingContext2D();
   private dataPreferences: preferences.Preferences | null = null;
 
@@ -999,9 +1009,9 @@ export struct PersonalizationPage {
             ? (this.isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.06)')
             : this.customThemeColor)
           .borderRadius(15)
-          .shadow(this.shrinkWindowSize === SHRINK_SIZE_DEFAULT
-            ? { radius: 0, color: '#00000000' }
-            : { radius: 8, color: '#33000000', offsetY: 2 })
+          // .shadow(this.shrinkWindowSize === SHRINK_SIZE_DEFAULT
+          //   ? { radius: 0, color: '#00000000' }
+          //   : { radius: 8, color: '#33000000', offsetY: 2 })
           .margin({ right: 6 })
           .onClick(() => { this.saveShrinkWindowSize(SHRINK_SIZE_DEFAULT); })
         Text(`${Math.round(this.shrinkWindowSize)} vp`)
@@ -1130,20 +1140,7 @@ export struct PersonalizationPage {
 
   @Builder
   AnimModeSheetContent() {
-    Column() {
-      Row() {
-        Text('视频页动画')
-          .fontSize(16)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(this.isDarkMode ? '#FFFFFF' : '#000000')
-        Blank()
-        Text('实时预览')
-          .fontSize(11)
-          .fontColor(this.isDarkMode ? '#888888' : '#999999')
-      }
-      .width('100%')
-      .margin({ top: 8, bottom: 14 })
-
+    HdsNavigation() {
       Scroll() {
         Column() {
           // ── 两个开关（半宽并排）──
@@ -1163,7 +1160,7 @@ export struct PersonalizationPage {
           // ── 小窗样式（4 张形状卡）──
           Text('缩小后的小窗样式')
             .fontSize(11)
-            .fontColor(this.isDarkMode ? '#888888' : '#999999')
+            .fontColor($r('sys.color.font_secondary'))
             .width('100%')
             .margin({ bottom: 6 })
           Row({ space: 8 }) {
@@ -1181,11 +1178,11 @@ export struct PersonalizationPage {
           Row() {
             Text('页面加载动画')
               .fontSize(11)
-              .fontColor(this.isDarkMode ? '#888888' : '#999999')
+              .fontColor($r('sys.color.font_secondary'))
             Blank()
             Text('共 8 种')
               .fontSize(11)
-              .fontColor(this.isDarkMode ? '#777777' : '#AAAAAA')
+              .fontColor($r('sys.color.font_tertiary'))
           }
           .width('100%')
           .margin({ bottom: 6 })
@@ -1196,31 +1193,68 @@ export struct PersonalizationPage {
             })
           }
           .width('100%')
-
-          // 关闭按钮
-          Button('关闭')
-            .width('100%')
-            .height(40)
-            .fontSize(14)
-            .fontWeight(FontWeight.Medium)
-            .backgroundColor(this.isDarkMode ? '#3A3A3C' : '#E8E8E8')
-            .fontColor(this.isDarkMode ? '#FFFFFF' : '#000000')
-            .borderRadius(10)
-            .margin({ top: 8 })
-            .onClick(() => { this.isAnimModeSheetShow = false; })
         }
         .width('100%')
+        .padding({ top: 56 + 12, left: 16, right: 16, bottom: 24 })
       }
-      .layoutWeight(1)
-      .align(Alignment.Top)
+      .width('100%')
+      .height('100%')
       .scrollBar(BarState.Off)
-      // ⭐ 滑动回弹：Scroll 的 edgeEffect 默认是 None（完全硬边），要显式设 Spring。
-      //    alwaysEnabled: true → 内容不足一屏时也能拉动回弹（Scroll 的该项默认就是 true，这里写明意图）
       .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
     }
-    .width('100%')
-    .height('100%')
-    .padding({ left: 20, right: 20, bottom: 24 })
+    .titleMode(HdsNavigationTitleMode.MODAL)
+    .titleBar({
+      padding: { start: LengthMetrics.vp(16), end: LengthMetrics.vp(16) },
+      style: {
+        scrollEffectOpts: {
+          enableScrollEffect: true,
+          scrollEffectType: ScrollEffectType.IMMERSIVE_GRADIENT_BLUR,
+          blurEffectiveStartOffset: LengthMetrics.vp(0),
+          blurEffectiveEndOffset: LengthMetrics.vp(20)
+        },
+        systemMaterialEffect: {
+          materialType: hdsMaterial.MaterialType.ADAPTIVE,
+          materialLevel: hdsMaterial.MaterialLevel.EXQUISITE
+        },
+        originalStyle: {
+          backgroundStyle: { backgroundColor: 'transparent' },
+          contentStyle: {
+            titleStyle: { mainTitleColor: $r('sys.color.font_primary'), subTitleColor: $r('sys.color.font_secondary') },
+            menuStyle: { backgroundColor: $r('sys.color.comp_background_tertiary'), iconColor: $r('sys.color.icon_primary') },
+            backIconStyle: { backgroundColor: $r('sys.color.comp_background_tertiary'), iconColor: $r('sys.color.icon_primary') }
+          }
+        },
+        scrollEffectStyle: {
+          backgroundStyle: { backgroundColor: 'transparent' },
+          contentStyle: {
+            titleStyle: { mainTitleColor: $r('sys.color.font_primary'), subTitleColor: $r('sys.color.font_secondary') },
+            menuStyle: { backgroundColor: $r('sys.color.comp_background_tertiary'), iconColor: $r('sys.color.icon_primary') },
+            backIconStyle: { backgroundColor: $r('sys.color.comp_background_tertiary'), iconColor: $r('sys.color.icon_primary') }
+          }
+        }
+      },
+      content: {
+        title: {
+          mainTitle: '视频页动画',
+          subTitle: '实时预览'
+        },
+        menu: {
+          value: [
+            {
+              content: {
+                label: 'modal_cancel',
+                isEnabled: true,
+                type: IconStyleMode.SMALL,
+                action: (): void => {
+                  this.isAnimModeSheetShow = false;
+                  this.stopPreviewLoop();
+                }
+              }
+            }
+          ]
+        }
+      }
+    })
   }
 
   @Builder
@@ -1380,227 +1414,350 @@ export struct PersonalizationPage {
     this.isWallpaperSheetShow = true;
   }
 
+  private dismissColorThemeSheet(): void {
+    if (this.customThemeColor !== this.committedThemeColor) {
+      AlertDialog.show({
+        title: '退出颜色主题',
+        message: '有未应用的颜色更改，退出后将丢失。是否退出？',
+        autoCancel: false,
+        primaryButton: {
+          value: '取消',
+          fontColor: this.isDarkMode ? '#FFFFFF' : '#000000',
+          action: () => {}
+        },
+        secondaryButton: {
+          value: '退出',
+          fontColor: '#E84040',
+          action: () => {
+            this.customThemeColor = this.committedThemeColor;
+            this.showColorTheme = false;
+          }
+        }
+      });
+    } else {
+      this.showColorTheme = false;
+    }
+  }
+
   @Builder
   WallpaperSheetContent() {
-    Column() {
+    HdsNavigation() {
       WallpaperSelectPage({ onClose: () => { this.isWallpaperSheetShow = false; } })
     }
-    .width('100%')
-    .height('100%')
+    .titleMode(HdsNavigationTitleMode.MODAL)
+    .titleBar({
+      padding: { start: LengthMetrics.vp(16), end: LengthMetrics.vp(16) },
+      style: {
+        scrollEffectOpts: {
+          enableScrollEffect: true,
+          scrollEffectType: ScrollEffectType.IMMERSIVE_GRADIENT_BLUR,
+          blurEffectiveStartOffset: LengthMetrics.vp(0),
+          blurEffectiveEndOffset: LengthMetrics.vp(20)
+        },
+        systemMaterialEffect: {
+          materialType: hdsMaterial.MaterialType.ADAPTIVE,
+          materialLevel: hdsMaterial.MaterialLevel.EXQUISITE
+        },
+        originalStyle: {
+          backgroundStyle: { backgroundColor: 'transparent' },
+          contentStyle: {
+            titleStyle: { mainTitleColor: $r('sys.color.font_primary'), subTitleColor: $r('sys.color.font_secondary') },
+            menuStyle: { backgroundColor: $r('sys.color.comp_background_tertiary'), iconColor: $r('sys.color.icon_primary') },
+            backIconStyle: { backgroundColor: $r('sys.color.comp_background_tertiary'), iconColor: $r('sys.color.icon_primary') }
+          }
+        },
+        scrollEffectStyle: {
+          backgroundStyle: { backgroundColor: 'transparent' },
+          contentStyle: {
+            titleStyle: { mainTitleColor: $r('sys.color.font_primary'), subTitleColor: $r('sys.color.font_secondary') },
+            menuStyle: { backgroundColor: $r('sys.color.comp_background_tertiary'), iconColor: $r('sys.color.icon_primary') },
+            backIconStyle: { backgroundColor: $r('sys.color.comp_background_tertiary'), iconColor: $r('sys.color.icon_primary') }
+          }
+        }
+      },
+      content: {
+        title: {
+          mainTitle: '壁纸设置'
+        },
+        menu: {
+          value: [
+            {
+              content: {
+                label: 'modal_cancel',
+                isEnabled: true,
+                type: IconStyleMode.SMALL,
+                action: (): void => {
+                  this.isWallpaperSheetShow = false;
+                }
+              }
+            }
+          ]
+        }
+      }
+    })
   }
 
   @Builder
   ColorThemeSheetContent() {
-    Column() {
-      Row() {
-        Text('颜色主题')
-          .fontSize(14)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(this.isDarkMode ? '#FFFFFF' : '#000000')
-      }
-      .width('100%')
-      .margin({ top: 4, bottom: 14 })
-
-      // ⭐ Row 1：色轮（左50%）| 预设色卡（右上）+ 保持色卡（右下）
-      Row() {
-        // ── 左50%：色轮（完整显示 160×160）──
+    HdsNavigation() {
+      Scroll() {
         Column() {
-          Canvas(this.canvasCtx)
-            .width(160).height(160)
-            .onReady(() => { this.drawColorWheel(); })
-            .onTouch((event: TouchEvent) => { this.handleColorWheelTouch(event); })
-        }
-        .layoutWeight(1)
-        .alignItems(HorizontalAlign.Center)
-        .justifyContent(FlexAlign.Center)
-
-        // ── 右50%：上为预设色卡，下为保持色卡 ──
-        Column() {
-          // 预设色卡（顶部，4列2行方形）
-          Column() {
-            Text('预设色卡').fontSize(11).fontColor(this.isDarkMode ? '#AAAAAA' : '#888888')
-              .margin({ bottom: 4 })
-            Grid() {
-              ForEach(this.presetColors, (color: string) => {
-                GridItem() {
-                  Column() {
-                    Column()
-                      .width('100%')
-                      .height('100%')
-                      .backgroundColor(color)
-                      .borderRadius(8)
-                      .onClick(() => {
-                        const hsv2: [number, number, number] = this.hexToHsv(color);
-                        this.colorPickerHue = hsv2[0];
-                        this.colorPickerSaturation = hsv2[1];
-                        this.colorPickerBrightness = hsv2[2];
-                        this.updateColorPickerPreview();
-                      })
-                      .clickEffect({ level: 0, scale: 0.9 })
-                  }
-                  .padding(4)
-                }
-                .shadow({ radius: 2, color: '#15000000', offsetY: 1 })
-              })
+          // ⭐ Row 1：色轮（左50%）| 预设色卡（右上）+ 保持色卡（右下）
+          Row() {
+            // ── 左50%：色轮（完整显示 160×160）──
+            Column() {
+              Canvas(this.canvasCtx)
+                .width(160).height(160)
+                .onReady(() => { this.drawColorWheel(); })
+                .onTouch((event: TouchEvent) => { this.handleColorWheelTouch(event); })
             }
-            .columnsTemplate('1fr 1fr 1fr 1fr')
-            .rowsTemplate('1fr 1fr')
-            .columnsGap(6)
-            .rowsGap(6)
-            .height(68)
-            .width('100%')
-          }
+            .layoutWeight(1)
+            .alignItems(HorizontalAlign.Center)
+            .justifyContent(FlexAlign.Center)
 
-          // 弹性间距
-          Blank().layoutWeight(1)
-
-          // 保持色卡（底部，4列2行方形）
-          Column() {
-            Text('已保存色卡').fontSize(11).fontColor(this.isDarkMode ? '#AAAAAA' : '#888888')
-              .margin({ bottom: 4 })
-            Grid() {
-              ForEach(this.getSavedColorsList(), (color: string, index: number) => {
-                GridItem() {
-                  Column() {
-                    Column()
-                      .width('100%')
-                      .height('100%')
-                      .backgroundColor(color)
-                      .borderRadius(8)
-                      .onClick(() => {
-                        const hsv3: [number, number, number] = this.hexToHsv(color);
-                        this.colorPickerHue = hsv3[0];
-                        this.colorPickerSaturation = hsv3[1];
-                        this.colorPickerBrightness = hsv3[2];
-                        this.updateColorPickerPreview();
-                      })
-                      .gesture(
-                        LongPressGesture({ repeat: false, duration: 500 })
-                          .onAction(() => {
-                            this.removeSavedColor(index);
+            // ── 右50%：上为预设色卡，下为保持色卡 ──
+            Column() {
+              // 预设色卡（顶部，4列2行方形）
+              Column() {
+                Text('预设色卡').fontSize(11).fontColor(this.isDarkMode ? '#AAAAAA' : '#888888')
+                  .margin({ bottom: 4 })
+                Grid() {
+                  ForEach(this.presetColors, (color: string) => {
+                    GridItem() {
+                      Column() {
+                        Column()
+                          .width('100%')
+                          .height('100%')
+                          .backgroundColor(color)
+                          .borderRadius(8)
+                          .onClick(() => {
+                            const hsv2: [number, number, number] = this.hexToHsv(color);
+                            this.colorPickerHue = hsv2[0];
+                            this.colorPickerSaturation = hsv2[1];
+                            this.colorPickerBrightness = hsv2[2];
+                            this.updateColorPickerPreview();
                           })
-                      )
-                      .clickEffect({ level: 0, scale: 0.9 })
-                  }
-                  .padding(4)
+                          .clickEffect({ level: 0, scale: 0.9 })
+                      }
+                      .padding(4)
+                    }
+                    // .shadow({ radius: 2, color: '#15000000', offsetY: 1 })
+                  })
                 }
-                .shadow({ radius: 2, color: '#15000000', offsetY: 1 })
-              })
+                .columnsTemplate('1fr 1fr 1fr 1fr')
+                .rowsTemplate('1fr 1fr')
+                .columnsGap(6)
+                .rowsGap(6)
+                .height(68)
+                .width('100%')
+              }
+
+              // 弹性间距
+              Blank().layoutWeight(1)
+
+              // 保持色卡（底部，4列2行方形）
+              Column() {
+                Text('已保存色卡').fontSize(11).fontColor(this.isDarkMode ? '#AAAAAA' : '#888888')
+                  .margin({ bottom: 4 })
+                Grid() {
+                  ForEach(this.getSavedColorsList(), (color: string, index: number) => {
+                    GridItem() {
+                      Column() {
+                        Column()
+                          .width('100%')
+                          .height('100%')
+                          .backgroundColor(color)
+                          .borderRadius(8)
+                          .onClick(() => {
+                            const hsv3: [number, number, number] = this.hexToHsv(color);
+                            this.colorPickerHue = hsv3[0];
+                            this.colorPickerSaturation = hsv3[1];
+                            this.colorPickerBrightness = hsv3[2];
+                            this.updateColorPickerPreview();
+                          })
+                          .gesture(
+                            LongPressGesture({ repeat: false, duration: 500 })
+                              .onAction(() => {
+                                this.removeSavedColor(index);
+                              })
+                          )
+                          .clickEffect({ level: 0, scale: 0.9 })
+                      }
+                      .padding(4)
+                    }
+                    // .shadow({ radius: 2, color: '#15000000', offsetY: 1 })
+                  })
+                }
+                .columnsTemplate('1fr 1fr 1fr 1fr')
+                .rowsTemplate('1fr 1fr')
+                .columnsGap(6)
+                .rowsGap(6)
+                .height(68)
+                .width('100%')
+              }
             }
-            .columnsTemplate('1fr 1fr 1fr 1fr')
-            .rowsTemplate('1fr 1fr')
-            .columnsGap(6)
-            .rowsGap(6)
-            .height(68)
+            .layoutWeight(1)
+            .height('100%')
+            .padding({ left: 8 })
+          }
+          .width('100%')
+          .height(195)
+          .margin({ bottom: 14 })
+
+          // ⭐ 单列：HSV 滑块
+          Row() {
+            Text('色相').fontSize(13).fontColor(this.isDarkMode ? '#FFFFFF' : '#000000').width(36)
+            Slider({ value: this.colorPickerHue, min: 0, max: 360, step: 1, style: SliderStyle.InSet })
+              .layoutWeight(1)
+              .trackColor(this.isDarkMode ? '#3A3A3A' : '#E8E8E8')
+              .blockColor(this.customThemeColor)
+              .onChange((value: number) => { this.colorPickerHue = value; this.updateColorPickerPreview(); this.drawColorWheel(); })
+            Text(`${Math.round(this.colorPickerHue)}°`).fontSize(12).fontColor(this.isDarkMode ? '#FFFFFF' : '#000000').width(30).textAlign(TextAlign.End)
+          }
+          .width('100%').height(32).alignItems(VerticalAlign.Center)
+
+          Row() {
+            Text('饱和').fontSize(13).fontColor(this.isDarkMode ? '#FFFFFF' : '#000000').width(36)
+            Slider({ value: this.colorPickerSaturation, min: 0, max: 100, step: 1, style: SliderStyle.InSet })
+              .layoutWeight(1)
+              .trackColor(this.isDarkMode ? '#3A3A3A' : '#E8E8E8')
+              .blockColor(this.customThemeColor)
+              .onChange((value: number) => { this.colorPickerSaturation = value; this.updateColorPickerPreview(); this.drawColorWheel(); })
+            Text(`${Math.round(this.colorPickerSaturation)}`).fontSize(12).fontColor(this.isDarkMode ? '#FFFFFF' : '#000000').width(30).textAlign(TextAlign.End)
+          }
+          .width('100%').height(32).alignItems(VerticalAlign.Center)
+
+          Row() {
+            Text('亮度').fontSize(13).fontColor(this.isDarkMode ? '#FFFFFF' : '#000000').width(36)
+            Slider({ value: this.colorPickerBrightness, min: 0, max: 100, step: 1, style: SliderStyle.InSet })
+              .layoutWeight(1)
+              .trackColor(this.isDarkMode ? '#3A3A3A' : '#E8E8E8')
+              .blockColor(this.customThemeColor)
+              .onChange((value: number) => { this.colorPickerBrightness = value; this.updateColorPickerPreview(); this.drawColorWheel(); })
+            Text(`${Math.round(this.colorPickerBrightness)}`).fontSize(12).fontColor(this.isDarkMode ? '#FFFFFF' : '#000000').width(30).textAlign(TextAlign.End)
+          }
+          .width('100%').height(32).alignItems(VerticalAlign.Center)
+          .margin({ bottom: 8 })
+
+          // ⭐ 单列：预览色 + 保存当前颜色
+          Row() {
+            Column() {
+              Text('预览色')
+                .fontSize(13)
+                .fontColor(Color.White)
+            }
+            .height(32)
+            .backgroundColor(this.customThemeColor)
+            .borderRadius(8)
+            .justifyContent(FlexAlign.Center)
+            .alignItems(HorizontalAlign.Center)
+            .layoutWeight(1)
+            .onClick(() => { this.onCustomColorSelected(this.customThemeColor); })
+            .clickEffect({ level: 0, scale: 0.94 })
+            Blank().width(8)
+            Button('保存当前色卡')
+              .height(32)
+              .fontSize(13)
+              .fontWeight(FontWeight.Medium)
+              .backgroundColor(this.isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.04)')
+              .fontColor(this.customThemeColor)
+              .border({ width: 1, color: this.customThemeColor })
+              .borderRadius(8)
+              .layoutWeight(1)
+              .onClick(() => { this.saveCurrentColor(); })
+              .clickEffect({ level: 0, scale: 0.94 })
+          }
+          .width('100%')
+          .margin({ bottom: 14 })
+
+          // ⭐ Row 2：从壁纸取色 | 应用
+          Row() {
+            Button('从壁纸取色')
+              .height(40)
+              .fontSize(14)
+              .fontWeight(FontWeight.Medium)
+              .backgroundColor(this.customThemeColor)
+              .fontColor(Color.White)
+              .borderRadius(10)
+              .onClick(() => { this.extractColorFromWallpaper(); })
+              .clickEffect({ level: 0, scale: 0.96 })
+              .layoutWeight(1)
+              .margin({ right: 6 })
+            Button('应用').fontSize(14).height(40).fontColor(Color.White).backgroundColor(this.customThemeColor)
+              .borderRadius(10).layoutWeight(1).fontWeight(FontWeight.Medium)
+              .onClick(() => { this.onCustomColorSelected(this.customThemeColor); })
+              .clickEffect({ level: 0, scale: 0.94 })
+          }
+          .width('100%')
+          .margin({ bottom: 14 })
+
+          // ⭐ 底部提示：引导壁纸取色失败时手动选色
+          Text('壁纸取色失败，底部栏回退到默认的非悬浮态外观时，请手动选取颜色。')
+            .fontSize(13)
+            .fontColor(this.isDarkMode ? '#666666' : '#999999')
+            .textAlign(TextAlign.Center)
             .width('100%')
+            .margin({ top: 0, bottom: 0 })
+        }
+        .width('100%')
+        .padding({ top: 56 + 12, left: 18, right: 18, bottom: 24 })
+      }
+      .width('100%')
+      .height('100%')
+      .scrollBar(BarState.Off)
+      .edgeEffect(EdgeEffect.Spring)
+    }
+    .titleMode(HdsNavigationTitleMode.MODAL)
+    .titleBar({
+      padding: { start: LengthMetrics.vp(16), end: LengthMetrics.vp(16) },
+      style: {
+        scrollEffectOpts: {
+          enableScrollEffect: true,
+          scrollEffectType: ScrollEffectType.IMMERSIVE_GRADIENT_BLUR,
+          blurEffectiveStartOffset: LengthMetrics.vp(0),
+          blurEffectiveEndOffset: LengthMetrics.vp(20)
+        },
+        systemMaterialEffect: {
+          materialType: hdsMaterial.MaterialType.ADAPTIVE,
+          materialLevel: hdsMaterial.MaterialLevel.EXQUISITE
+        },
+        originalStyle: {
+          backgroundStyle: { backgroundColor: 'transparent' },
+          contentStyle: {
+            titleStyle: { mainTitleColor: $r('sys.color.font_primary'), subTitleColor: $r('sys.color.font_secondary') },
+            menuStyle: { backgroundColor: $r('sys.color.comp_background_tertiary'), iconColor: $r('sys.color.icon_primary') },
+            backIconStyle: { backgroundColor: $r('sys.color.comp_background_tertiary'), iconColor: $r('sys.color.icon_primary') }
+          }
+        },
+        scrollEffectStyle: {
+          backgroundStyle: { backgroundColor: 'transparent' },
+          contentStyle: {
+            titleStyle: { mainTitleColor: $r('sys.color.font_primary'), subTitleColor: $r('sys.color.font_secondary') },
+            menuStyle: { backgroundColor: $r('sys.color.comp_background_tertiary'), iconColor: $r('sys.color.icon_primary') },
+            backIconStyle: { backgroundColor: $r('sys.color.comp_background_tertiary'), iconColor: $r('sys.color.icon_primary') }
           }
         }
-        .layoutWeight(1)
-        .height('100%')
-        .padding({ left: 8 })
-      }
-      .width('100%')
-      .height(195)
-      .margin({ bottom: 14 })
-
-      // ⭐ 单列：HSV 滑块
-      Row() {
-        Text('色相').fontSize(13).fontColor(this.isDarkMode ? '#FFFFFF' : '#000000').width(36)
-        Slider({ value: this.colorPickerHue, min: 0, max: 360, step: 1, style: SliderStyle.InSet })
-          .layoutWeight(1)
-          .trackColor(this.isDarkMode ? '#3A3A3A' : '#E8E8E8')
-          .blockColor(this.customThemeColor)
-          .onChange((value: number) => { this.colorPickerHue = value; this.updateColorPickerPreview(); this.drawColorWheel(); })
-        Text(`${Math.round(this.colorPickerHue)}°`).fontSize(12).fontColor(this.isDarkMode ? '#FFFFFF' : '#000000').width(30).textAlign(TextAlign.End)
-      }
-      .width('100%').height(32).alignItems(VerticalAlign.Center)
-
-      Row() {
-        Text('饱和').fontSize(13).fontColor(this.isDarkMode ? '#FFFFFF' : '#000000').width(36)
-        Slider({ value: this.colorPickerSaturation, min: 0, max: 100, step: 1, style: SliderStyle.InSet })
-          .layoutWeight(1)
-          .trackColor(this.isDarkMode ? '#3A3A3A' : '#E8E8E8')
-          .blockColor(this.customThemeColor)
-          .onChange((value: number) => { this.colorPickerSaturation = value; this.updateColorPickerPreview(); this.drawColorWheel(); })
-        Text(`${Math.round(this.colorPickerSaturation)}`).fontSize(12).fontColor(this.isDarkMode ? '#FFFFFF' : '#000000').width(30).textAlign(TextAlign.End)
-      }
-      .width('100%').height(32).alignItems(VerticalAlign.Center)
-
-      Row() {
-        Text('亮度').fontSize(13).fontColor(this.isDarkMode ? '#FFFFFF' : '#000000').width(36)
-        Slider({ value: this.colorPickerBrightness, min: 0, max: 100, step: 1, style: SliderStyle.InSet })
-          .layoutWeight(1)
-          .trackColor(this.isDarkMode ? '#3A3A3A' : '#E8E8E8')
-          .blockColor(this.customThemeColor)
-          .onChange((value: number) => { this.colorPickerBrightness = value; this.updateColorPickerPreview(); this.drawColorWheel(); })
-        Text(`${Math.round(this.colorPickerBrightness)}`).fontSize(12).fontColor(this.isDarkMode ? '#FFFFFF' : '#000000').width(30).textAlign(TextAlign.End)
-      }
-      .width('100%').height(32).alignItems(VerticalAlign.Center)
-      .margin({ bottom: 8 })
-
-      // ⭐ 单列：预览色 + 保存当前颜色
-      Row() {
-        Column() {
-          Text('预览色')
-            .fontSize(13)
-            .fontColor(Color.White)
+      },
+      content: {
+        title: {
+          mainTitle: '颜色主题'
+        },
+        menu: {
+          value: [
+            {
+              content: {
+                label: 'modal_cancel',
+                isEnabled: true,
+                type: IconStyleMode.SMALL,
+                action: (): void => {
+                  this.dismissColorThemeSheet();
+                }
+              }
+            }
+          ]
         }
-        .height(32)
-        .backgroundColor(this.customThemeColor)
-        .borderRadius(8)
-        .justifyContent(FlexAlign.Center)
-        .alignItems(HorizontalAlign.Center)
-        .layoutWeight(1)
-        .onClick(() => { this.onCustomColorSelected(this.customThemeColor); })
-        .clickEffect({ level: 0, scale: 0.94 })
-        Blank().width(8)
-        Button('保存当前色卡')
-          .height(32)
-          .fontSize(13)
-          .fontWeight(FontWeight.Medium)
-          .backgroundColor(this.isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.04)')
-          .fontColor(this.customThemeColor)
-          .border({ width: 1, color: this.customThemeColor })
-          .borderRadius(8)
-          .layoutWeight(1)
-          .onClick(() => { this.saveCurrentColor(); })
-          .clickEffect({ level: 0, scale: 0.94 })
       }
-      .width('100%')
-      .margin({ bottom: 14 })
-
-      // ⭐ Row 2：从壁纸取色 | 应用
-      Row() {
-        Button('从壁纸取色')
-          .height(40)
-          .fontSize(14)
-          .fontWeight(FontWeight.Medium)
-          .backgroundColor(this.customThemeColor)
-          .fontColor(Color.White)
-          .borderRadius(10)
-          .onClick(() => { this.extractColorFromWallpaper(); })
-          .clickEffect({ level: 0, scale: 0.96 })
-          .layoutWeight(1)
-          .margin({ right: 6 })
-        Button('应用').fontSize(14).height(40).fontColor(Color.White).backgroundColor(this.customThemeColor)
-          .borderRadius(10).layoutWeight(1).fontWeight(FontWeight.Medium)
-          .onClick(() => { this.onCustomColorSelected(this.customThemeColor); })
-          .clickEffect({ level: 0, scale: 0.94 })
-      }
-      .width('100%')
-      .margin({ bottom: 14 })
-
-      // ⭐ 底部提示：引导壁纸取色失败时手动选色
-      Text('壁纸取色失败，底部栏回退到默认的非悬浮态外观时，请手动选取颜色。')
-        .fontSize(13)
-        .fontColor(this.isDarkMode ? '#666666' : '#999999')
-        .textAlign(TextAlign.Center)
-        .width('100%')
-        .margin({ top: 0, bottom: 0 })
-    }
-    .width('100%')
-    .padding({ left: 18, right: 18, top: 8, bottom: 12 })
-    .backgroundColor(this.isDarkMode ? '#1C1C1E' : '#F5F5F5')
+    })
   }
 
   // ── 其他方法 ──
@@ -1697,272 +1854,308 @@ export struct PersonalizationPage {
     }
   }
 
-  private showOrientationPicker(): void {
-    const primaryColor = this.isDarkMode ? '#FFFFFF' : '#000000';
-    const cancelColor = this.isDarkMode ? '#FFFFFF' : '#000000';
-    const textColor = this.isDarkMode ? '#FFFFFF' : '#000000';
-    const backgroundColor = this.isDarkMode ? 'rgba(44, 44, 44, 0.95)' : 'rgba(255, 255, 255, 0.95)';
-
-    AlertDialog.show({
-      title: '选择屏幕旋转模式',
-      message: '',
-      backgroundColor: backgroundColor,
-      buttons: [
-        {
-          value: '自动旋转',
-          fontColor: primaryColor,
-          action: () => {
-            this.saveOrientationLock('自动旋转');
-          }
-        },
-        {
-          value: '锁定竖屏',
-          fontColor: primaryColor,
-          action: () => {
-            this.saveOrientationLock('锁定竖屏');
-          }
-        },
-        {
-          value: '锁定横屏',
-          fontColor: primaryColor,
-          action: () => {
-            this.saveOrientationLock('锁定横屏');
-          }
-        },
-        {
-          value: '取消',
-          fontColor: cancelColor,
-          action: () => {
-            // 取消操作，关闭对话框
-          }
-        }
-      ]
-    });
+  @Builder
+  OrientationMenuBuilder() {
+    Menu() {
+      ForEach(['自动旋转', '锁定竖屏', '锁定横屏'], (option: string) => {
+        MenuItem({
+          content: option,
+          labelInfo: this.screenOrientationLock === option ? '当前' : ''
+        })
+          .selectIcon(this.screenOrientationLock === option)
+          .selected(this.screenOrientationLock === option)
+          .onClick(() => {
+            this.isOrientationMenuShow = false;
+            this.saveOrientationLock(option);
+          })
+      }, (option: string) => option)
+    }
   }
 
-  // ── 设置项构建器 ──
+  private getCardItemBg(): ResourceColor {
+    if (this.cardTransparentStyle) {
+      return this.isDarkMode
+        ? `rgba(28,28,30,${this.cardBgOpacity / 100})`
+        : `rgba(255,255,255,${this.cardBgOpacity / 100})`;
+    }
+    return $r('app.color.card_background');
+  }
+
+  // ── Hivid 风格设置项构建器 ──
 
   @Builder
-  SettingItemWithToggle(icon: ResourceStr, title: string, isOn: boolean, onChange: (isOn: boolean) => void, marginBottom: number = 12) {
+  SettingItemWithToggle(title: string, isOn: boolean, onChange: (isOn: boolean) => void) {
     Row() {
-      Image(icon)
-        .width(24).height(24)
-        .fillColor(this.isDarkMode ? '#FFFFFF' : '#000000')
-        .margin({ right: 14 })
       Text(title)
         .fontSize(16)
-        .fontColor(this.isDarkMode ? '#FFFFFF' : '#000000')
-        .fontWeight(FontWeight.Medium)
-      Blank()
+        .fontColor($r('sys.color.font_primary'))
+        .layoutWeight(1)
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
       Toggle({ type: ToggleType.Switch, isOn: isOn })
         .selectedColor(this.customThemeColor)
         .switchPointColor(Color.White)
-        .onChange((value: boolean) => { onChange(value); })
+        .onChange((value: boolean) => {
+          if (value !== isOn) {
+            onChange(value);
+          }
+        })
     }
     .width('100%')
     .height(56)
-    .backgroundColor(this.isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.70)')
-
-    .borderRadius(20)
-    .padding({ left: 18, right: 18 })
-    .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
-    .margin({ bottom: marginBottom })
-    .animation({ duration: 150, curve: Curve.EaseOut })
-    .stateStyles({
-      pressed: {
-        backgroundColor: this.isDarkMode ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.55)'
-      }
+    .padding({ left: 16, right: 16 })
+    .alignItems(VerticalAlign.Center)
+    .onClick(() => {
+      onChange(!isOn);
     })
   }
 
   @Builder
-  SettingItemWithPicker(icon: ResourceStr, title: string, value: string, onClick: () => void, marginBottom: number = 8) {
+  SettingItemWithPicker(title: string, value: string, onClick: () => void) {
     Row() {
-      Image(icon)
-        .width(24).height(24)
-        .fillColor(this.isDarkMode ? '#FFFFFF' : '#000000')
-        .margin({ right: 14 })
       Text(title)
         .fontSize(16)
-        .fontColor(this.isDarkMode ? '#FFFFFF' : '#000000')
-        .fontWeight(FontWeight.Medium)
-      Blank()
+        .fontColor($r('sys.color.font_primary'))
+        .layoutWeight(1)
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
       Text(value)
         .fontSize(14)
-        .fontColor(this.isDarkMode ? '#FFFFFF' : '#000000')
+        .fontColor($r('sys.color.font_secondary'))
         .maxLines(1)
-        .textOverflow({ overflow: TextOverflow.Ellipsis })   // 摘要变长（页面动画 + 小窗样式）后窄屏不换行/不溢出
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
         .margin({ right: 8 })
-      Image($r('app.media.chevron_right'))
-        .width(10)
-        .height(10)
-        .fillColor(this.isDarkMode ? '#FFFFFF' : '#000000')
+      SymbolGlyph($r('sys.symbol.chevron_right'))
+        .fontSize(14)
+        .fontColor([$r('sys.color.icon_secondary')])
     }
     .width('100%')
     .height(56)
-    .backgroundColor(this.isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.70)')
-
-    .borderRadius(20)
-    .padding({ left: 18, right: 18 })
-    .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
-    .margin({ bottom: marginBottom })
-    .animation({ duration: 150, curve: Curve.EaseOut })
-    .stateStyles({
-      pressed: {
-        backgroundColor: 'rgba(0, 0, 0, 0.8)'
-      }
-    })
+    .padding({ left: 16, right: 16 })
+    .alignItems(VerticalAlign.Center)
     .onClick(() => { onClick(); })
   }
 
   // ── 分组标题构建器 ──
   @Builder
-  SectionHeader(icon: ResourceStr, title: string) {
-    Row() {
-      Image(icon)
-        .width(20).height(20)
-        .fillColor(this.isDarkMode ? '#8E8E93' : '#8E8E93')
-        .margin({ right: 10 })
-      Text(title)
-        .fontSize(15)
-        .fontColor(this.isDarkMode ? '#8E8E93' : '#8E8E93')
-        .fontWeight(FontWeight.Medium)
-    }
-    .width('100%')
-    .padding({ left: 6, right: 4 })
-    .margin({ top: 20, bottom: 10 })
+  SectionHeader(title: string) {
+    Text(title)
+      .fontSize(13)
+      .fontWeight(FontWeight.Medium)
+      .fontColor($r('sys.color.font_secondary'))
+      .width('94%')
+      .margin({ top: 18, bottom: 8, left: 12 })
   }
 
   build() {
-    Stack() {
+    Scroll() {
       Column() {
-          Row() {
-            Text('个性化')
-              .fontSize(18)
-              .fontWeight(FontWeight.Medium)
-              .fontColor(this.isDarkMode ? '#FFFFFF' : '#000000')
-            Blank()
-          }
-          .width('100%').height(44).padding({ left: 4, right: 4 }).margin({ bottom: 12 })
-
-          if (this.showContent) {
+        if (this.showContent) {
+          Column() {
+            // ── 视觉与外观 ──
+            this.SectionHeader('视觉与外观')
             Column() {
-              // ── 视觉与外观 ──
-              this.SectionHeader($r('app.media.paintpalette'), '视觉与外观')
-              this.SettingItemWithPicker($r('app.media.ic_settings_wallpaper'), '壁纸', this.getWallpaperLabel(), () => {
+              this.SettingItemWithPicker('壁纸', this.getWallpaperLabel(), () => {
                 this.showWallpaperPicker();
-              }, 8)
-              this.SettingItemWithPicker($r('app.media.paintpalette'), '颜色主题', this.customThemeColor, () => {
+              })
+              Divider()
+              this.SettingItemWithPicker('颜色主题', this.customThemeColor, () => {
                 this.showColorTheme = true;
-              }, 8)
-              this.SettingItemWithToggle($r('app.media.ic_settings_eyehide'), '状态栏隐藏', this.hideStatusBar, (isOn: boolean) => {
+              })
+              Divider()
+              this.SettingItemWithToggle('状态栏隐藏', this.hideStatusBar, (isOn: boolean) => {
                 this.saveHideStatusBar(isOn);
-              }, 8)
-              this.SettingItemWithToggle($r('app.media.paintpalette'), '标题胶囊彩色图标', this.capsuleColorIcons, (isOn: boolean) => {
+              })
+              Divider()
+              this.SettingItemWithToggle('标题胶囊彩色图标', this.capsuleColorIcons, (isOn: boolean) => {
                 this.saveCapsuleColorIcons(isOn);
-              }, 8)
-              this.SettingItemWithToggle($r('app.media.hand_point_up_tap_fill_1'), '悬浮按钮跟随颜色主题', this.floatBtnFollowTheme, (isOn: boolean) => {
+              })
+              Divider()
+              this.SettingItemWithToggle('悬浮按钮跟随颜色主题', this.floatBtnFollowTheme, (isOn: boolean) => {
                 this.saveFloatBtnFollowTheme(isOn);
-              }, 8)
+              })
+            }
+            .width('94%')
+            .borderRadius(15)
+            .backgroundColor(this.getCardItemBg())
+            // .shadow({
+            //   radius: 50,
+            //   color: '#80000000',
+            //   offsetX: 0,
+            //   offsetY: 15
+            // })
 
-              // ── 交互与动效 ──
-              this.SectionHeader($r('app.media.ic_desktop_box'), '交互与动效')
-              this.SettingItemWithToggle($r('app.media.nosign'), '关闭所有动画', this.disableAnimations, (isOn: boolean) => {
+            // ── 交互与动效 ──
+            this.SectionHeader('交互与动效')
+            Column() {
+              this.SettingItemWithToggle('关闭所有动画', this.disableAnimations, (isOn: boolean) => {
                 this.saveDisableAnimations(isOn);
-              }, 8)
+              })
+              Divider()
               Column() {
-                this.SettingItemWithPicker($r('app.media.ic_desktop_box'), '视频页动画', `${labelByShrinkStyle(this.shrinkWindowStyle)} · ${labelByMode(this.pageEnterAnim)}`, () => {
+                this.SettingItemWithPicker('视频页动画', `${labelByShrinkStyle(this.shrinkWindowStyle)} · ${labelByMode(this.pageEnterAnim)}`, () => {
                   this.showAnimModePicker();
-                }, 8)
+                })
               }
-              .bindSheet($$this.isAnimModeSheetShow, this.AnimModeSheetContent(), {
-                height: '74%',
+              .width('100%')
+              .bindSheet($$this.isAnimModeSheetShow, this.AnimModeSheetContent, {
+                height: '75%',
                 dragBar: false,
                 showClose: false,
-                backgroundColor: this.isDarkMode ? '#1C1C1E' : '#F5F5F5',
+                backgroundColor: undefined,
+                preferType: SheetType.CENTER,
                 onDisappear: () => {
                   this.isAnimModeSheetShow = false;
                   this.stopPreviewLoop();
                 }
               })
-              this.SettingItemWithToggle($r('app.media.lightbulb'), '震动反馈', this.vibrateEnabled, (isOn: boolean) => {
+              Divider()
+              this.SettingItemWithToggle('震动反馈', this.vibrateEnabled, (isOn: boolean) => {
                 this.saveVibrateEnabled(isOn);
-              }, 8)
-              this.SettingItemWithToggle($r('app.media.lightbulb'), '智感握姿', this.smartGripEnabled, (isOn: boolean) => {
+              })
+              Divider()
+              this.SettingItemWithToggle('智感握姿', this.smartGripEnabled, (isOn: boolean) => {
                 this.saveSmartGripEnabled(isOn);
-              }, 8)
-              this.SettingItemWithToggle($r('app.media.lightbulb'), '开灯按钮显示', this.lightsOffShowBtn, (isOn: boolean) => {
+              })
+              Divider()
+              this.SettingItemWithToggle('开灯按钮显示', this.lightsOffShowBtn, (isOn: boolean) => {
                 this.saveLightsOffShowBtn(isOn);
-              }, 8)
-              this.SettingItemWithToggle($r('app.media.lightbulb'), '关灯视频外弹幕', this.lightsOffDanmakuOutside, (isOn: boolean) => {
+              })
+              Divider()
+              this.SettingItemWithToggle('关灯视频外弹幕', this.lightsOffDanmakuOutside, (isOn: boolean) => {
                 this.saveLightsOffDanmakuOutside(isOn);
-              }, 8)
-              this.SettingItemWithToggle($r('app.media.lightbulb'), '关灯切换为隐藏组件', this.lightsOffHideOnly, (isOn: boolean) => {
+              })
+              Divider()
+              this.SettingItemWithToggle('关灯切换为隐藏组件', this.lightsOffHideOnly, (isOn: boolean) => {
                 this.saveLightsOffHideOnly(isOn);
-              }, 8)
+              })
+              Divider()
               Row() {
-                this.SettingItemWithPicker($r('app.media.ic_settings_rotation'), '浮窗旋转速度', `${labelByFloatBtnSpeed(this.floatBtnRotationSpeed)}`, () => {
-                  this.isFloatBtnSpeedMenuShow = true;
-                }, 8)
+                Text('浮窗旋转速度')
+                  .fontSize(16)
+                  .fontColor($r('sys.color.font_primary'))
+                  .layoutWeight(1)
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                Text(labelByFloatBtnSpeed(this.floatBtnRotationSpeed))
+                  .fontSize(14)
+                  .fontColor($r('sys.color.font_secondary'))
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  .margin({ right: 8 })
+                SymbolGlyph($r('sys.symbol.chevron_right'))
+                  .fontSize(14)
+                  .fontColor([$r('sys.color.icon_secondary')])
+                  .bindMenu(this.isFloatBtnSpeedMenuShow, this.FloatBtnSpeedMenuBuilder(), {
+                    onDisappear: () => { this.isFloatBtnSpeedMenuShow = false; }
+                  })
               }
               .width('100%')
-              .bindMenu(this.isFloatBtnSpeedMenuShow, this.FloatBtnSpeedMenuBuilder(), {
-                onDisappear: () => { this.isFloatBtnSpeedMenuShow = false; }
-              })
-
-              // ── 其他 ──
-              this.SectionHeader($r('app.media.ic_settings_rotation'), '其他')
-              this.SettingItemWithPicker($r('app.media.ic_settings_rotation'), '旋转', this.screenOrientationLock, () => {
-                this.showOrientationPicker();
-              }, 8)
+              .height(56)
+              .padding({ left: 16, right: 16 })
+              .alignItems(VerticalAlign.Center)
+              .onClick(() => { this.isFloatBtnSpeedMenuShow = true; })
             }
-            .width('100%')
-            .margin({ top: 12, bottom: 12 })
-            .bindSheet($$this.showColorTheme, this.ColorThemeSheetContent(), {
-              height: '75%',
-              dragBar: false,
-              showClose: false,
-              backgroundColor: this.isDarkMode ? '#1C1C1E' : '#F5F5F5',
-              onWillDismiss: (dismissSheetAction: DismissSheetAction) => {
-                if (this.customThemeColor !== this.committedThemeColor) {
-                  AlertDialog.show({
-                    title: '退出颜色主题',
-                    message: '有未应用的颜色更改，退出后将丢失。是否退出？',
-                    autoCancel: false,
-                    primaryButton: {
-                      value: '取消',
-                      fontColor: this.isDarkMode ? '#FFFFFF' : '#000000',
-                      action: () => {}
-                    },
-                    secondaryButton: {
-                      value: '退出',
-                      fontColor: '#E84040',
-                      action: () => {
-                        this.customThemeColor = this.committedThemeColor;
-                        this.showColorTheme = false;
-                      }
-                    }
-                  });
-                } else {
-                  this.showColorTheme = false;
-                }
+            .width('94%')
+            .borderRadius(15)
+            .backgroundColor(this.getCardItemBg())
+            // .shadow({
+            //   radius: 50,
+            //   color: '#80000000',
+            //   offsetX: 0,
+            //   offsetY: 15
+            // })
+
+            // ── 其他 ──
+            this.SectionHeader('其他')
+            Column() {
+              Row() {
+                Text('旋转')
+                  .fontSize(16)
+                  .fontColor($r('sys.color.font_primary'))
+                  .layoutWeight(1)
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                Text(this.screenOrientationLock)
+                  .fontSize(14)
+                  .fontColor($r('sys.color.font_secondary'))
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  .margin({ right: 8 })
+                SymbolGlyph($r('sys.symbol.chevron_right'))
+                  .fontSize(14)
+                  .fontColor([$r('sys.color.icon_secondary')])
+                  .bindMenu(this.isOrientationMenuShow, this.OrientationMenuBuilder(), {
+                    onDisappear: () => { this.isOrientationMenuShow = false; }
+                  })
               }
-            })
+              .width('100%')
+              .height(56)
+              .padding({ left: 16, right: 16 })
+              .alignItems(VerticalAlign.Center)
+              .onClick(() => { this.isOrientationMenuShow = true; })
+            }
+            .width('94%')
+            .borderRadius(15)
+            .backgroundColor(this.getCardItemBg())
+            // .shadow({
+            //   radius: 50,
+            //   color: '#80000000',
+            //   offsetX: 0,
+            //   offsetY: 15
+            // })
           }
+          .width('100%')
+          .margin({ bottom: 12 })
+          .bindSheet($$this.showColorTheme, this.ColorThemeSheetContent, {
+            height: '78%',
+            dragBar: false,
+            showClose: false,
+            backgroundColor: undefined,
+            preferType: SheetType.CENTER,
+            onWillDismiss: (dismissSheetAction: DismissSheetAction) => {
+              if (this.customThemeColor !== this.committedThemeColor) {
+                AlertDialog.show({
+                  title: '退出颜色主题',
+                  message: '有未应用的颜色更改，退出后将丢失。是否退出？',
+                  autoCancel: false,
+                  primaryButton: {
+                    value: '取消',
+                    fontColor: this.isDarkMode ? '#FFFFFF' : '#000000',
+                    action: () => {}
+                  },
+                  secondaryButton: {
+                    value: '退出',
+                    fontColor: '#E84040',
+                    action: () => {
+                      this.customThemeColor = this.committedThemeColor;
+                      this.showColorTheme = false;
+                    }
+                  }
+                });
+              } else {
+                this.showColorTheme = false;
+              }
+            }
+          })
         }
-        .width('100%')
-        .opacity(this.showContent ? 1 : 0)
-        .translate({ y: this.showContent ? 0 : 20 })
-        .animation({ duration: 300, curve: Curve.EaseOut, delay: 50 })
-        
       }
+      .width('100%')
+      .opacity(this.showContent ? 1 : 0)
+      .translate({ y: this.showContent ? 0 : 20 })
+      .animation({ duration: 300, curve: Curve.EaseOut, delay: 50 })
+      
+    }
     .width('100%')
-    .padding({ left: 20, right: 20, top: 12, bottom: 24 })
-    .bindSheet($$this.isWallpaperSheetShow, this.WallpaperSheetContent(), {
-      height: '55%',
+    .scrollBar(BarState.Off)
+    .edgeEffect(EdgeEffect.Spring)
+    .padding({ top: 56, bottom: 24 })
+    .bindSheet($$this.isWallpaperSheetShow, this.WallpaperSheetContent, {
+      height: '65%',
       dragBar: false,
       showClose: false,
-      backgroundColor: this.isDarkMode ? '#1C1C1E' : '#F5F5F5',
+      backgroundColor: undefined,
+      preferType: SheetType.CENTER,
       onDisappear: () => { this.isWallpaperSheetShow = false; }
     })
   }

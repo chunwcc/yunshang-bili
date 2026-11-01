@@ -111,8 +111,8 @@ struct Index {
 
   // ★ 系统级沉浸光感配置 — 探测设备支持后降级，避免 sys.float.hms_material_style 解析失败闪烁
   // 默认 ADAPTIVE（跟随系统），aboutToAppear 中根据 getSystemMaterialTypes() 结果调整
-  @State customMaterialType: hdsMaterial.MaterialType = hdsMaterial.MaterialType.ADAPTIVE;
-  @State customMaterialLevel: hdsMaterial.MaterialLevel = hdsMaterial.MaterialLevel.ADAPTIVE;
+  @State customMaterialType: hdsMaterial.MaterialType = hdsMaterial.MaterialType.IMMERSIVE;
+  @State customMaterialLevel: hdsMaterial.MaterialLevel = hdsMaterial.MaterialLevel.EXQUISITE;
 
   // ★ 各页面的 Scroller — 由 Index 直接创建，同时传给子页面和 bindToScrollable
   private homeScroller: Scroller = new Scroller();
@@ -1297,12 +1297,13 @@ AppStorage.setOrCreate('shrinkWindowSize', storedShrinkWindowSize);
           .barFloatingStyle({
             barWidth: { smallWidth: 264, mediumWidth: 264, largeWidth: 264 },
             barSideMargin: 20,
-            barBottomMargin: 27 + this.navIndicatorHeight,
-            // ⚠️ 全局不画这层底栏遮罩：它绘制在内容层之下，凡是"内容没铺满屏幕底部"的页面
-            //    （消息页/我的页…）都会显出一条灰带（真机像素取证见 memory/2026-09-23.md）。
-            // ⚠️⚠️ 回退：把 maskColor 改回 `this.isDarkMode ? '#662C2C2C' : '#66F1F3F5'` 即恢复原行为。
-            gradientMask: { maskColor: Color.Transparent, maskHeight: 92 },
-            systemMaterialEffect: { materialType: this.customMaterialType, materialLevel: this.customMaterialLevel },
+            barBottomMargin: 28 + this.navIndicatorHeight,
+            // 对齐 Hivid 全透光遮罩设计，无硬切遮罩带
+            gradientMask: { maskColor: Color.Transparent },
+            systemMaterialEffect: {
+              materialType: this.customMaterialType,
+              materialLevel: this.customMaterialLevel
+            },
             // ★ 自定义沉浸光感颜色 — 跟随主题色动态变化
             lightColor: this.getImmersiveLightColor(),
             // ★ 握持手自适应

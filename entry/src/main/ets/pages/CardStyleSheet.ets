@@ -344,6 +344,15 @@ export struct CardStyleSheet {
     return this.isDarkMode ? `rgba(255,255,255,${this.cardBorderOpacity / 100})` : 'rgba(255,255,255,0.25)';
   }
 
+  private getCardItemBg(): ResourceColor {
+    if (this.cardTransparentStyle) {
+      return this.isDarkMode
+        ? `rgba(28,28,30,${this.cardBgOpacity / 100})`
+        : `rgba(255,255,255,${this.cardBgOpacity / 100})`;
+    }
+    return $r('app.color.card_background');
+  }
+
   private getPreviewBgColor(): string {
     if (this.cardCustomColor && this.cardCustomColor !== '#007DFF') {
       if (this.cardTransparentStyle) {
@@ -463,7 +472,7 @@ export struct CardStyleSheet {
 
           Slider({
             value: this.cardBorderOpacity,
-            min: 0, max: 100, step: 5, style: SliderStyle.InSet
+            min: 10, max: 100, step: 5, style: SliderStyle.InSet
           })
             .width('100%')
             .trackColor(this.isDarkMode ? '#3A3A3A' : '#E8E8E8')
@@ -475,10 +484,10 @@ export struct CardStyleSheet {
             })
         }
         .width('100%')
-        .backgroundColor(this.isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.70)')
-        .borderRadius(20)
+        .backgroundColor(this.getCardItemBg())
+        .borderRadius(15)
         .padding({ left: 14, right: 14, top: 12, bottom: 12 })
-        .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
+        // .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
       }
       .layoutWeight(1)
       .margin({ right: 6 })
@@ -501,7 +510,7 @@ export struct CardStyleSheet {
 
           Slider({
             value: this.cardBgOpacity,
-            min: 0, max: 80, step: 5, style: SliderStyle.InSet
+            min: 5, max: 80, step: 5, style: SliderStyle.InSet
           })
             .width('100%')
             .trackColor(this.isDarkMode ? '#3A3A3A' : '#E8E8E8')
@@ -513,10 +522,10 @@ export struct CardStyleSheet {
             })
         }
         .width('100%')
-        .backgroundColor(this.isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.70)')
-        .borderRadius(20)
+        .backgroundColor(this.getCardItemBg())
+        .borderRadius(15)
         .padding({ left: 14, right: 14, top: 12, bottom: 12 })
-        .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
+        // .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
       }
       .layoutWeight(1)
       .margin({ left: 6 })
@@ -545,7 +554,7 @@ export struct CardStyleSheet {
 
           Slider({
             value: this.cardBorderWidth,
-            min: 0, max: 6, step: 0.5, style: SliderStyle.InSet
+            min: 0.5, max: 6, step: 0.5, style: SliderStyle.InSet
           })
             .width('100%')
             .trackColor(this.isDarkMode ? '#3A3A3A' : '#E8E8E8')
@@ -557,10 +566,10 @@ export struct CardStyleSheet {
             })
         }
         .width('100%')
-        .backgroundColor(this.isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.70)')
-        .borderRadius(20)
+        .backgroundColor(this.getCardItemBg())
+        .borderRadius(15)
         .padding({ left: 14, right: 14, top: 12, bottom: 12 })
-        .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
+        // .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
       }
       .layoutWeight(1)
       .margin({ right: 6 })
@@ -590,10 +599,10 @@ export struct CardStyleSheet {
           .clickEffect({ level: 0, scale: 0.95 })
         }
         .width('100%')
-        .backgroundColor(this.isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.70)')
-        .borderRadius(20)
+        .backgroundColor(this.getCardItemBg())
+        .borderRadius(15)
         .padding({ left: 14, right: 14, top: 12, bottom: 12 })
-        .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
+        // .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
       }
       .layoutWeight(1)
       .margin({ left: 6 })
@@ -648,11 +657,11 @@ export struct CardStyleSheet {
           : (this.isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.06)'))
       }
       .width('100%')
-      .height(44)
-      .padding({ left: 14, right: 14 })
-      .backgroundColor(this.isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.70)')
-      .borderRadius(20)
-      .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
+      .height(56)
+      .padding({ left: 16, right: 16 })
+      .backgroundColor(this.getCardItemBg())
+      .borderRadius(15)
+      // .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
       .margin({ top: 4, bottom: 10 })
       .onClick(() => { this.capsuleGroupExpanded = !this.capsuleGroupExpanded; })
       .clickEffect({ level: 0, scale: 0.98 })
@@ -739,10 +748,10 @@ export struct CardStyleSheet {
                 })
             }
             .width('100%')
-            .backgroundColor(this.isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.70)')
-            .borderRadius(20)
+            .backgroundColor(this.getCardItemBg())
+            .borderRadius(15)
             .padding({ left: 14, right: 14, top: 12, bottom: 12 })
-            .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
+            // .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
           }
           .layoutWeight(1)
           .margin({ right: 6 })
@@ -776,10 +785,10 @@ export struct CardStyleSheet {
                 })
             }
             .width('100%')
-            .backgroundColor(this.isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.70)')
-            .borderRadius(20)
+            .backgroundColor(this.getCardItemBg())
+            .borderRadius(15)
             .padding({ left: 14, right: 14, top: 12, bottom: 12 })
-            .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
+            // .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
           }
           .layoutWeight(1)
           .margin({ left: 6 })
@@ -811,9 +820,9 @@ export struct CardStyleSheet {
         .width('100%')
         .height(44)
         .padding({ left: 18, right: 18 })
-        .backgroundColor(this.isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.70)')
-        .borderRadius(20)
-        .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
+        .backgroundColor(this.getCardItemBg())
+        .borderRadius(15)
+        // .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
         .margin({ bottom: 10 })
 
         // 色卡 + 自定义（圆角矩形卡片包裹）
@@ -857,9 +866,9 @@ export struct CardStyleSheet {
         }
         .width('100%')
         .padding({ left: 12, right: 12, top: 8, bottom: 8 })
-        .backgroundColor(this.isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.70)')
-        .borderRadius(16)
-        .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
+        .backgroundColor(this.getCardItemBg())
+        .borderRadius(15)
+        // .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
         .margin({ bottom: 10 })
       }
       }
@@ -890,11 +899,11 @@ export struct CardStyleSheet {
           : (this.isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.06)'))
       }
       .width('100%')
-      .height(44)
-      .padding({ left: 14, right: 14 })
-      .backgroundColor(this.isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.70)')
-      .borderRadius(20)
-      .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
+      .height(56)
+      .padding({ left: 16, right: 16 })
+      .backgroundColor(this.getCardItemBg())
+      .borderRadius(15)
+      // .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
       .margin({ bottom: 10 })
       .onClick(() => { this.playCountGroupExpanded = !this.playCountGroupExpanded; })
       .clickEffect({ level: 0, scale: 0.98 })
@@ -950,10 +959,10 @@ export struct CardStyleSheet {
               })
           }
           .width('100%')
-          .backgroundColor(this.isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.70)')
-          .borderRadius(20)
+          .backgroundColor(this.getCardItemBg())
+          .borderRadius(15)
           .padding({ left: 18, right: 18, top: 12, bottom: 12 })
-          .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
+          // .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
           .margin({ bottom: 10 })
 
           // 颜色模式（4 chips 卡片）
@@ -1033,9 +1042,9 @@ export struct CardStyleSheet {
           }
           .width('100%')
           .padding({ left: 12, right: 12, top: 8, bottom: 8 })
-          .backgroundColor(this.isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.70)')
-          .borderRadius(16)
-          .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
+          .backgroundColor(this.getCardItemBg())
+          .borderRadius(15)
+          // .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
           .margin({ bottom: 10 })
 
           // 自定义色卡（custom 模式时显示）
@@ -1080,9 +1089,9 @@ export struct CardStyleSheet {
             }
             .width('100%')
             .padding({ left: 12, right: 12, top: 8, bottom: 8 })
-            .backgroundColor(this.isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.70)')
-            .borderRadius(16)
-            .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
+            .backgroundColor(this.getCardItemBg())
+            .borderRadius(15)
+            // .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
             .margin({ bottom: 10 })
           }
         }
@@ -1123,10 +1132,10 @@ export struct CardStyleSheet {
             })
         }
         .width('100%')
-        .backgroundColor(this.isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.70)')
-        .borderRadius(20)
+        .backgroundColor(this.getCardItemBg())
+        .borderRadius(15)
         .padding({ left: 14, right: 14, top: 12, bottom: 12 })
-        .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
+        // .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
       }
       .layoutWeight(1)
       .margin({ right: 6 })
@@ -1161,10 +1170,10 @@ export struct CardStyleSheet {
             })
         }
         .width('100%')
-        .backgroundColor(this.isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.70)')
-        .borderRadius(20)
+        .backgroundColor(this.getCardItemBg())
+        .borderRadius(15)
         .padding({ left: 14, right: 14, top: 12, bottom: 12 })
-        .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
+        // .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
       }
       .layoutWeight(1)
       .margin({ left: 6 })
@@ -1213,13 +1222,13 @@ export struct CardStyleSheet {
         width: this.cardTransparentStyle ? this.cardBorderWidth : 0,
         color: this.getPreviewBorderColor()
       })
-      .shadow({ radius: 3, color: '#10000000', offsetY: 1 })
+      // .shadow({ radius: 3, color: '#10000000', offsetY: 1 })
     }
     .width('100%')
     .padding(16)
     .backgroundImage($r('app.media.yulanbizhi'))
     .backgroundImageSize(ImageSize.Cover)
-    .borderRadius(20)
+    .borderRadius(15)
     .clip(true)
     .margin({ bottom: 12 })
   }
@@ -1303,10 +1312,10 @@ export struct CardStyleSheet {
       .width('100%')
     }
     .width('100%')
-    .backgroundColor(this.isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.70)')
-    .borderRadius(20)
+    .backgroundColor(this.getCardItemBg())
+    .borderRadius(15)
     .padding({ left: 18, right: 18, top: 12, bottom: 12 })
-    .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
+    // .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
     .margin({ bottom: 12 })
 
     // 视频页背景明暗调节滑块
@@ -1353,10 +1362,10 @@ export struct CardStyleSheet {
       .width('100%')
     }
     .width('100%')
-    .backgroundColor(this.isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.70)')
-    .borderRadius(20)
+    .backgroundColor(this.getCardItemBg())
+    .borderRadius(15)
     .padding({ left: 18, right: 18, top: 12, bottom: 12 })
-    .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
+    // .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
     .margin({ bottom: 12 })
 
     // ── 播放页效果预览（位于背景明暗调节下方，实时反映开关/背景/圆角间距） ──
@@ -1454,10 +1463,10 @@ export struct CardStyleSheet {
       }
     }
     .width('100%')
-    .backgroundColor(this.isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.70)')
-    .borderRadius(20)
+    .backgroundColor(this.getCardItemBg())
+    .borderRadius(15)
     .padding({ left: 18, right: 18, top: 12, bottom: 12 })
-    .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
+    // .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
     .margin({ bottom: 12 })
 
     // 播放页卡片间距 / 圆角（双列）
@@ -1492,10 +1501,10 @@ export struct CardStyleSheet {
             })
         }
         .width('100%')
-        .backgroundColor(this.isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.70)')
-        .borderRadius(20)
+        .backgroundColor(this.getCardItemBg())
+        .borderRadius(15)
         .padding({ left: 14, right: 14, top: 12, bottom: 12 })
-        .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
+        // .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
       }
       .layoutWeight(1)
       .margin({ right: 6 })
@@ -1530,10 +1539,10 @@ export struct CardStyleSheet {
             })
         }
         .width('100%')
-        .backgroundColor(this.isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.70)')
-        .borderRadius(20)
+        .backgroundColor(this.getCardItemBg())
+        .borderRadius(15)
         .padding({ left: 14, right: 14, top: 12, bottom: 12 })
-        .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
+        // .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
       }
       .layoutWeight(1)
       .margin({ left: 6 })
@@ -1546,20 +1555,21 @@ export struct CardStyleSheet {
     Column() {
       Row() {
         Text('播放页细节开关')
-          .fontSize(15)
-          .fontColor(this.isDarkMode ? '#FFFFFF' : '#000000')
-          .fontWeight(FontWeight.Medium)
-        Blank()
-        Text(this.playerDetailExpanded ? '收起 ▴' : '展开 ▾')
-          .fontSize(13)
-          .fontColor(this.customThemeColor)
+          .fontSize(16)
+          .fontColor($r('sys.color.font_primary'))
+          .layoutWeight(1)
+        SymbolGlyph($r('sys.symbol.chevron_right'))
+          .fontSize(14)
+          .fontColor([$r('sys.color.icon_secondary')])
+          .rotate({ angle: this.playerDetailExpanded ? 90 : 0 })
+          .animation({ duration: 200, curve: Curve.FastOutSlowIn })
       }
       .width('100%')
-      .height(44)
-      .padding({ left: 14, right: 14 })
-      .backgroundColor(this.isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.70)')
-      .borderRadius(16)
-      .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
+      .height(56)
+      .padding({ left: 16, right: 16 })
+      .backgroundColor(this.getCardItemBg())
+      .borderRadius(15)
+      // .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
       .onClick(() => { this.playerDetailExpanded = !this.playerDetailExpanded; })
       .clickEffect({ level: 0, scale: 0.97 })
 
@@ -1676,87 +1686,96 @@ export struct CardStyleSheet {
       .width('100%')
       .margin({ top: 4, bottom: 8 })
 
-      // 内置预设（长按可编辑/恢复默认；应用时覆盖值优先）
-      ForEach(getBuiltinPresets(), (p: StylePresetData) => {
-        Row() {
-          if (p.icon) {
-            Image($r('app.media.' + p.icon))
-              .width(22).height(22)
-              .margin({ right: 10 })
+      // 内置预设 + 自定义预设（Hivid 分组列表卡片）
+      Column() {
+        ForEach(getBuiltinPresets(), (p: StylePresetData, index: number) => {
+          if (index > 0) {
+            Divider()
           }
-          Column() {
-            Text(p.name)
-              .fontSize(15)
-              .fontColor(this.isDarkMode ? '#FFFFFF' : '#000000')
-              .fontWeight(FontWeight.Medium)
-              .width('100%')
-            Text(this.isBuiltinEdited(p.name) ? '已修改 · 长按编辑/恢复' : '内置 · 长按编辑')
-              .fontSize(10)
-              .fontColor(this.isBuiltinEdited(p.name)
-                ? this.customThemeColor
-                : (this.isDarkMode ? '#999999' : '#AAAAAA'))
-              .width('100%')
-              .margin({ top: 1 })
-          }
-          .alignItems(HorizontalAlign.Start)
-          .layoutWeight(1)
-          Text('应用')
-            .fontSize(13)
-            .fontColor(this.customThemeColor)
-        }
-        .width('100%')
-        .height(52)
-        .padding({ left: 14, right: 14 })
-        .backgroundColor(this.isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.70)')
-        .borderRadius(16)
-        .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
-        .margin({ bottom: 8 })
-        .onClick(() => { this.confirmApplyPreset(this.effBuiltinPreset(p)); })
-        .gesture(
-          LongPressGesture()
-            .onAction(() => {
-              this.editingBuiltinName = p.name;
-              this.showBuiltinEditSheet = true;
-            })
-        )
-        .clickEffect({ level: 0, scale: 0.97 })
-      }, (p: StylePresetData) => p.name)
-
-      // 用户自定义预设
-      ForEach(this.customPresets, (p: StylePresetData) => {
-        Row() {
-          Column() {
-            Text(p.name)
-              .fontSize(15)
-              .fontColor(this.isDarkMode ? '#FFFFFF' : '#000000')
-              .fontWeight(FontWeight.Medium)
-              .width('100%')
-            Text('自定义 · 长按删除')
-              .fontSize(10)
+          Row() {
+            Column() {
+              Text(p.name)
+                .fontSize(16)
+                .fontColor($r('sys.color.font_primary'))
+                .width('100%')
+              Text(this.isBuiltinEdited(p.name) ? '已修改 · 长按编辑/恢复' : '内置 · 长按编辑')
+                .fontSize(12)
+                .fontColor(this.isBuiltinEdited(p.name)
+                  ? this.customThemeColor
+                  : $r('sys.color.font_secondary'))
+                .width('100%')
+                .margin({ top: 2 })
+            }
+            .alignItems(HorizontalAlign.Start)
+            .layoutWeight(1)
+            Text('应用')
+              .fontSize(14)
               .fontColor(this.customThemeColor)
-              .width('100%')
-              .margin({ top: 1 })
+              .margin({ right: 8 })
+            SymbolGlyph($r('sys.symbol.chevron_right'))
+              .fontSize(14)
+              .fontColor([$r('sys.color.icon_secondary')])
           }
-          .alignItems(HorizontalAlign.Start)
-          .layoutWeight(1)
-          Text('应用')
-            .fontSize(13)
-            .fontColor(this.customThemeColor)
-        }
-        .width('100%')
-        .height(52)
-        .padding({ left: 14, right: 14 })
-        .backgroundColor(this.isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.70)')
-        .borderRadius(16)
-        .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
-        .margin({ bottom: 8 })
-        .onClick(() => { this.confirmApplyPreset(p); })
-        .gesture(
-          LongPressGesture()
-            .onAction(() => { this.confirmDeletePreset(p); })
-        )
-        .clickEffect({ level: 0, scale: 0.97 })
-      }, (p: StylePresetData) => p.name)
+          .width('100%')
+          .height(64)
+          .padding({ left: 16, right: 16 })
+          .alignItems(VerticalAlign.Center)
+          .onClick(() => { this.confirmApplyPreset(this.effBuiltinPreset(p)); })
+          .gesture(
+            LongPressGesture()
+              .onAction(() => {
+                this.editingBuiltinName = p.name;
+                this.showBuiltinEditSheet = true;
+              })
+          )
+        }, (p: StylePresetData) => p.name)
+
+        // 用户自定义预设
+        ForEach(this.customPresets, (p: StylePresetData) => {
+          Divider()
+          Row() {
+            Column() {
+              Text(p.name)
+                .fontSize(16)
+                .fontColor($r('sys.color.font_primary'))
+                .width('100%')
+              Text('自定义 · 长按删除')
+                .fontSize(12)
+                .fontColor(this.customThemeColor)
+                .width('100%')
+                .margin({ top: 2 })
+            }
+            .alignItems(HorizontalAlign.Start)
+            .layoutWeight(1)
+            Text('应用')
+              .fontSize(14)
+              .fontColor(this.customThemeColor)
+              .margin({ right: 8 })
+            SymbolGlyph($r('sys.symbol.chevron_right'))
+              .fontSize(14)
+              .fontColor([$r('sys.color.icon_secondary')])
+          }
+          .width('100%')
+          .height(64)
+          .padding({ left: 16, right: 16 })
+          .alignItems(VerticalAlign.Center)
+          .onClick(() => { this.confirmApplyPreset(p); })
+          .gesture(
+            LongPressGesture()
+              .onAction(() => { this.confirmDeletePreset(p); })
+          )
+        }, (p: StylePresetData) => p.name)
+      }
+      .width('100%')
+      .backgroundColor(this.getCardItemBg())
+      .borderRadius(15)
+      // .shadow({
+      //   radius: 50,
+      //   color: '#80000000',
+      //   offsetX: 0,
+      //   offsetY: 15
+      // })
+      .margin({ bottom: 12 })
 
       // 保存当前为预设
       Row() {
@@ -1766,10 +1785,10 @@ export struct CardStyleSheet {
           .fontColor(Color.White)
       }
       .width('100%')
-      .height(40)
+      .height(44)
       .justifyContent(FlexAlign.Center)
       .backgroundColor(this.customThemeColor)
-      .borderRadius(16)
+      .borderRadius(15)
       .onClick(() => {
         this.presetNameInput = '';
         this.showPresetNameSheet = true;
@@ -1785,9 +1804,6 @@ export struct CardStyleSheet {
       })
     }
     .width('100%')
-    .backgroundColor(this.isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)')
-    .borderRadius(20)
-    .padding({ left: 12, right: 12, top: 10, bottom: 14 })
     .bindSheet($$this.showPresetNameSheet, this.PresetNameSheetContent(), {
       height: 240,
       dragBar: false,
@@ -2098,11 +2114,11 @@ export struct CardStyleSheet {
         })
     }
     .width('100%')
-    .height(48)
-    .backgroundColor(this.isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.70)')
-    .borderRadius(20)
-    .padding({ left: 14, right: 14 })
-    .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
+    .height(desc ? 64 : 56)
+    .backgroundColor(this.getCardItemBg())
+    .borderRadius(15)
+    .padding({ left: 16, right: 16 })
+    // .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
     .margin({ bottom: 12 })
     .animation({ duration: 150, curve: Curve.EaseOut })
     .stateStyles({
@@ -2137,127 +2153,117 @@ export struct CardStyleSheet {
   // ════════════════════════ 主视图 ════════════════════════
 
   build() {
-    Column() {
-      // ── 标题栏 + 分类 + 内容：整体在一个滚动区内，随滚动一起移动 ──
-      Scroll() {
-        Column() {
-          Row() {
-        Text('卡片样式')
-          .fontSize(18)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(this.isDarkMode ? '#FFFFFF' : '#000000')
-        Blank()
-        // ── 深浅色独立（同档=mingan 图标 / 独立=duli 图标；切换需确认） ──
+    // ── 标题栏 + 分类 + 内容：整体在一个滚动区内，随滚动一起移动 ──
+    Scroll() {
+      Column() {
         Row() {
-          Image(this.cardStylePerMode ? $r('app.media.duli') : $r('app.media.mingan'))
-            .width(20).height(20)
-            .fillColor(this.cardStylePerMode ? Color.White : (this.isDarkMode ? '#AAAAAA' : '#888888'))
-            .margin({ right: 5 })
-          Text(this.cardStylePerMode ? '独立' : '同档')
-            .fontSize(12)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(this.cardStylePerMode ? Color.White : (this.isDarkMode ? '#CCCCCC' : '#666666'))
-        }
-        .height(32)
-        .padding({ left: 11, right: 12 })
-        .justifyContent(FlexAlign.Center)
-        .alignItems(VerticalAlign.Center)
-        .borderRadius(16)
-        .backgroundColor(this.cardStylePerMode
-          ? this.customThemeColor
-          : (this.isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)'))
-        .margin({ right: 8 })
-        .onClick(() => { this.confirmTogglePerMode(); })
-
-        // ── 深色/浅色分段切换（仅图标） ──
-        Row() {
+          Blank()
+          // ── 深浅色独立（同档=mingan 图标 / 独立=duli 图标；切换需确认） ──
           Row() {
-            Image($r('app.media.brightness_low7'))
-              .width(16).height(16)
-              .fillColor(!this.isDarkMode ? Color.White : '#888888')
+            Image(this.cardStylePerMode ? $r('app.media.duli') : $r('app.media.mingan'))
+              .width(20).height(20)
+              .fillColor(this.cardStylePerMode ? Color.White : (this.isDarkMode ? '#AAAAAA' : '#888888'))
+              .margin({ right: 5 })
+            Text(this.cardStylePerMode ? '独立' : '同档')
+              .fontSize(12)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(this.cardStylePerMode ? Color.White : (this.isDarkMode ? '#CCCCCC' : '#666666'))
           }
-          .layoutWeight(1)
-          .height(28)
+          .height(32)
+          .padding({ left: 11, right: 12 })
           .justifyContent(FlexAlign.Center)
-          .borderRadius(12)
-          .backgroundColor(!this.isDarkMode ? this.customThemeColor : Color.Transparent)
-          .onClick(() => { this.switchDarkMode(false); })
-          .clickEffect({ level: 0, scale: 0.94 })
+          .alignItems(VerticalAlign.Center)
+          .borderRadius(16)
+          .backgroundColor(this.cardStylePerMode
+            ? this.customThemeColor
+            : (this.isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)'))
+          .margin({ right: 8 })
+          .onClick(() => { this.confirmTogglePerMode(); })
 
+          // ── 深色/浅色分段切换（仅图标） ──
           Row() {
-            Image($r('app.media.ic_settings_darkmode'))
-              .width(16).height(16)
-              .fillColor(this.isDarkMode ? Color.White : '#888888')
-          }
-          .layoutWeight(1)
-          .height(28)
-          .justifyContent(FlexAlign.Center)
-          .borderRadius(12)
-          .backgroundColor(this.isDarkMode ? this.customThemeColor : Color.Transparent)
-          .onClick(() => { this.switchDarkMode(true); })
-          .clickEffect({ level: 0, scale: 0.94 })
-        }
-        .width(76)
-        .height(34)
-        .padding(3)
-        .backgroundColor(this.isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.05)')
-        .borderRadius(17)
-        .margin({ right: 4 })
-      }
-      .width('100%')
-      .height(44)
+            Row() {
+              Image($r('app.media.brightness_low7'))
+                .width(16).height(16)
+                .fillColor(!this.isDarkMode ? Color.White : '#888888')
+            }
+            .layoutWeight(1)
+            .height(28)
+            .justifyContent(FlexAlign.Center)
+            .borderRadius(12)
+            .backgroundColor(!this.isDarkMode ? this.customThemeColor : Color.Transparent)
+            .onClick(() => { this.switchDarkMode(false); })
+            .clickEffect({ level: 0, scale: 0.94 })
 
-          this.CategoryBar()
-
-          // 四个分类全部常驻（visibility 显隐），切换时不销毁预览组件，
-          // 避免 yulanbizhi 背景图每次切换都重新解码导致闪烁
-          // ⭐ 预设排第一位（顺序：预设 → 通用 → 首页 → 播放页）
-          Column() {
-            this.MoreSection()
+            Row() {
+              Image($r('app.media.ic_settings_darkmode'))
+                .width(16).height(16)
+                .fillColor(this.isDarkMode ? Color.White : '#888888')
+            }
+            .layoutWeight(1)
+            .height(28)
+            .justifyContent(FlexAlign.Center)
+            .borderRadius(12)
+            .backgroundColor(this.isDarkMode ? this.customThemeColor : Color.Transparent)
+            .onClick(() => { this.switchDarkMode(true); })
+            .clickEffect({ level: 0, scale: 0.94 })
           }
-          .width('100%')
-          .visibility(this.activeCategory === 0 ? Visibility.Visible : Visibility.None)
-          Column() {
-            this.CommonSection()
-          }
-          .width('100%')
-          .visibility(this.activeCategory === 1 ? Visibility.Visible : Visibility.None)
-          Column() {
-            this.HomeSection()
-          }
-          .width('100%')
-          .visibility(this.activeCategory === 2 ? Visibility.Visible : Visibility.None)
-          Column() {
-            this.PlayerSection()
-          }
-          .width('100%')
-          .visibility(this.activeCategory === 3 ? Visibility.Visible : Visibility.None)
+          .width(76)
+          .height(34)
+          .padding(3)
+          .backgroundColor(this.isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.05)')
+          .borderRadius(17)
+          .margin({ right: 4 })
         }
         .width('100%')
-        .padding({ bottom: 24 })
+        .height(44)
+
+        this.CategoryBar()
+
+        // 四个分类全部常驻（visibility 显隐），切换时不销毁预览组件，
+        // 避免 yulanbizhi 背景图每次切换都重新解码导致闪烁
+        // ⭐ 预设排第一位（顺序：预设 → 通用 → 首页 → 播放页）
+        Column() {
+          this.MoreSection()
+        }
+        .width('100%')
+        .visibility(this.activeCategory === 0 ? Visibility.Visible : Visibility.None)
+        Column() {
+          this.CommonSection()
+        }
+        .width('100%')
+        .visibility(this.activeCategory === 1 ? Visibility.Visible : Visibility.None)
+        Column() {
+          this.HomeSection()
+        }
+        .width('100%')
+        .visibility(this.activeCategory === 2 ? Visibility.Visible : Visibility.None)
+        Column() {
+          this.PlayerSection()
+        }
+        .width('100%')
+        .visibility(this.activeCategory === 3 ? Visibility.Visible : Visibility.None)
       }
       .width('100%')
-      .layoutWeight(1)
-      .scrollBar(BarState.Off)
-      .edgeEffect(EdgeEffect.Spring)
-      .bindSheet($$this.showCapsuleColorPicker, this.CapsuleColorPickerSheetContent(), {
-        height: 420,
+      .padding({ bottom: 24 })
+      .bindSheet($$this.showCardColorPicker, this.CardColorPickerSheetContent(), {
+        height: 280,
         dragBar: false,
         showClose: false,
         backgroundColor: this.isDarkMode ? '#1C1C1E' : '#F5F5F5',
-        onDisappear: () => { this.showCapsuleColorPicker = false; }
+        onDisappear: () => { this.showCardColorPicker = false; }
       })
     }
     .width('100%')
-    .height('100%')
-    .padding(16)
-    .backgroundColor(this.isDarkMode ? '#1C1C1E' : '#F5F5F5')
-    .bindSheet($$this.showCardColorPicker, this.CardColorPickerSheetContent(), {
-      height: 280,
+    .padding({ left: 16, right: 16, top: 56 + 8, bottom: 24 })
+    .scrollBar(BarState.Off)
+    .edgeEffect(EdgeEffect.Spring)
+    .bindSheet($$this.showCapsuleColorPicker, this.CapsuleColorPickerSheetContent(), {
+      height: 420,
       dragBar: false,
       showClose: false,
       backgroundColor: this.isDarkMode ? '#1C1C1E' : '#F5F5F5',
-      onDisappear: () => { this.showCardColorPicker = false; }
+      onDisappear: () => { this.showCapsuleColorPicker = false; }
     })
   }
 

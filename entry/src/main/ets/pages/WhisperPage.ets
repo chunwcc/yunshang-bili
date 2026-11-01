@@ -1,8 +1,8 @@
 // WhisperPage.ets — 私聊会话列表页（消息页）
-import { router, mediaquery, display, curves } from '@kit.ArkUI';
+import { router, mediaquery, display, LengthMetrics, curves } from '@kit.ArkUI';
 import { preferences } from '@kit.ArkData';
 import { common } from '@kit.AbilityKit';
-import { hdsMaterial } from '@kit.UIDesignKit';
+import { hdsMaterial, HdsNavDestination, ScrollEffectType } from '@kit.UIDesignKit';
 import { HdsMiniBarButton } from '../components/infra/HdsMiniBarButton';
 import { WhisperChatView } from '../components/WhisperChatView';
 import { logInfo, logWarn, logError, errMsg } from '../utils/Logger';
@@ -299,7 +299,7 @@ export struct WhisperPage {
     });
   }
 
-  /** 底栏重复点击消息 Tab（已置顶）→ 刷新会话列表（点亮原生指示器） */
+  /** 底栏重复点击消息 Tab（已置顶）→ 刷新会话列表（点亮原生 Refresh） */
   private onRefreshMsgFlag(): void {
     this.isRefreshing = true;
     this.refreshAll();
@@ -671,7 +671,7 @@ export struct WhisperPage {
     })
   }
 
-  /** 下拉刷新指示器（与首页 customRefreshComponent 同款：LoadingProgress + 文案，随拖拽状态切换） */
+  /** 下拉刷新指示器（与首页 customRefreshComponent 同款布局与配色） */
   @Builder
   msgRefreshIndicator() {
     Stack() {
@@ -887,64 +887,101 @@ export struct WhisperPage {
   }
 
   build() {
-    // ⚠️ 手动分栏（Navigation 嵌入 HdsTabs Tab 内容不渲染，改用条件布局 + mediaquery 方向监听）
-    if (this.isLandscape) {
-      // ⚠️ 手动分栏（对齐官方 RowSplit 视觉：左右栏直接相邻，只有一根细线；拖动热区独立放大不占布局）
-      Stack() {
-        Row() {
-          Column() {
-            this.sessionListBody()
-          }
-          .width(this.leftWidth)
-          .height('100%')
-          WhisperChatView({
-            talkerId: this.chatTalkerId,
-            talkerName: this.chatTalkerName,
-            talkerFace: this.chatTalkerFace
-          })
-            .layoutWeight(1)
+    HdsNavDestination() {
+      // ⚠️ 手动分栏（Navigation 嵌入 HdsTabs Tab 内容不渲染，改用条件布局 + mediaquery 方向监听）
+      if (this.isLandscape) {
+        // ⚠️ 手动分栏（对齐官方 RowSplit 视觉：左右栏直接相邻，只有一根细线；拖动热区独立放大不占布局）
+        Stack() {
+          Row() {
+            Column() {
+              this.sessionListBody()
+            }
+            .width(this.leftWidth)
             .height('100%')
+            WhisperChatView({
+              talkerId: this.chatTalkerId,
+              talkerName: this.chatTalkerName,
+              talkerFace: this.chatTalkerFace
+            })
+              .layoutWeight(1)
+              .height('100%')
+          }
+          .width('100%')
+          .height('100%')
+          // 视觉分割线：只有一根 1vp 细线（position 跟随左栏宽度，不占布局→无背景色带）
+          Column()
+            .width(1)
+            .height('100%')
+            .backgroundColor(this.isDarkMode ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.20)')
+            .position({ x: this.leftWidth - 0.5 })
+          // 透明触控热区：20vp（position 跟随分割线，不占布局），PanGesture 拖动
+          Column()
+            .width(20)
+            .height('100%')
+            .position({ x: this.leftWidth - 10 })
+            .gesture(
+              PanGesture({ direction: PanDirection.Horizontal, distance: 0 })
+                .onActionStart(() => {
+                  this.dragStartWidth = this.leftWidth;
+                })
+                .onActionUpdate((event: GestureEvent) => {
+                  // ⚠️ 左栏可调范围 = 屏幕宽 30%~70%（左30%右70% ↔ 左70%右30%）
+                  const disp = display.getDefaultDisplaySync();
+                  const screenW = disp.width / disp.densityPixels;
+                  const minW = screenW * SPLIT_MIN_RATIO;
+                  const maxW = screenW * SPLIT_MAX_RATIO;
+                  const next = Math.min(maxW, Math.max(minW, this.dragStartWidth + event.offsetX));
+                  if (next !== this.leftWidth) {
+                    this.leftWidth = next;
+                  }
+                })
+                .onActionEnd(() => {
+                  // ⚠️ 拖动结束持久化左栏宽度，下次进入恢复
+                  this.saveLeftWidth();
+                })
+            )
         }
         .width('100%')
         .height('100%')
-        // 视觉分割线：只有一根 1vp 细线（position 跟随左栏宽度，不占布局→无背景色带）
-        Column()
-          .width(1)
-          .height('100%')
-          .backgroundColor(this.isDarkMode ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.20)')
-          .position({ x: this.leftWidth - 0.5 })
-        // 透明触控热区：20vp（position 跟随分割线，不占布局），PanGesture 拖动
-        Column()
-          .width(20)
-          .height('100%')
-          .position({ x: this.leftWidth - 10 })
-          .gesture(
-            PanGesture({ direction: PanDirection.Horizontal, distance: 0 })
-              .onActionStart(() => {
-                this.dragStartWidth = this.leftWidth;
-              })
-              .onActionUpdate((event: GestureEvent) => {
-                // ⚠️ 左栏可调范围 = 屏幕宽 30%~70%（左30%右70% ↔ 左70%右30%）
-                const disp = display.getDefaultDisplaySync();
-                const screenW = disp.width / disp.densityPixels;
-                const minW = screenW * SPLIT_MIN_RATIO;
-                const maxW = screenW * SPLIT_MAX_RATIO;
-                const next = Math.min(maxW, Math.max(minW, this.dragStartWidth + event.offsetX));
-                if (next !== this.leftWidth) {
-                  this.leftWidth = next;
-                }
-              })
-              .onActionEnd(() => {
-                // ⚠️ 拖动结束持久化左栏宽度，下次进入恢复
-                this.saveLeftWidth();
-              })
-          )
+        // ⚠️ 透明背景：透出 Index 全局壁纸层（与首页/我的页一致）；右栏 WhisperChatView 自带底色
+      } else {
+        this.sessionListBody()
       }
-      .width('100%')
-      .height('100%')
-      // ⚠️ 透明背景：透出 Index 全局壁纸层（与首页/我的页一致）；右栏 WhisperChatView 自带底色
-    } else {
-      this.sessionListBody()
     }
+    .hideBackButton(true)
+    .backgroundColor('transparent')
+    .titleBar({
+      avoidLayoutSafeArea: true,
+      padding: { start: LengthMetrics.vp(16), end: LengthMetrics.vp(16) },
+      style: {
+        scrollEffectOpts: {
+          enableScrollEffect: true,
+          scrollEffectType: ScrollEffectType.GRADIENT_BLUR
+        },
+        systemMaterialEffect: {
+          materialType: hdsMaterial.MaterialType.IMMERSIVE,
+          materialLevel: hdsMaterial.MaterialLevel.EXQUISITE
+        },
+        originalStyle: {
+          backgroundStyle: { backgroundColor: 'transparent' },
+          contentStyle: {
+            titleStyle: {
+              mainTitleColor: this.isDarkMode ? '#FFFFFF' : '#000000'
+            }
+          }
+        },
+        scrollEffectStyle: {
+          backgroundStyle: { backgroundColor: 'transparent' },
+          contentStyle: {
+            titleStyle: {
+              mainTitleColor: this.isDarkMode ? '#FFFFFF' : '#000000'
+            }
+          }
+        }
+      },
+      content: {
+        title: { mainTitle: '通知' }
+      }
+    })
   }
 }

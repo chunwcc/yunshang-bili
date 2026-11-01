@@ -382,8 +382,8 @@ export struct WallpaperSelectPage {
     }
     .width('100%')
     .height('100%')
-    .padding({ left: 16, right: 16, top: 16, bottom: 16 })
-    .backgroundColor(this.isDarkMode ? '#1A1A1A' : '#F5F5F5')
+    .padding({ left: 16, right: 16, top: 56 + 12, bottom: 16 })
+    .backgroundColor('transparent')
     .opacity(this.showContent ? 1 : 0)
     .animation({ duration: 280, curve: Curve.EaseOut })
   }

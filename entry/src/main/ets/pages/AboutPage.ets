@@ -1,9 +1,11 @@
 /**
- * 关于软件页面
+ * 关于软件页面 — HDS Navigation + 沉浸式渐变标题栏 + Hivid 风格分组卡片
  */
 import { fileIo } from '@kit.CoreFileKit';
 import { common } from '@kit.AbilityKit';
 import { pasteboard } from '@kit.BasicServicesKit';
+import { LengthMetrics } from '@kit.ArkUI';
+import { HdsNavigation, HdsNavigationTitleMode, ScrollEffectType, hdsMaterial } from '@kit.UIDesignKit';
 import { readErrorLog, clearErrorLog, getErrorLogSize } from '../utils/ErrorLogCollector';
 
 @Entry
@@ -13,8 +15,6 @@ struct AboutPage {
   @StorageLink('statusBarHeight') statusBarHeight: number = 0;
   private readonly appVersion: string = '1.3.7';
   @State cacheSizeText: string = '计算中…';
-  @State btnScale: number = 1;
-  @State logBtnScale: number = 1;
   @State logSizeText: string = '';
 
   async aboutToAppear(): Promise<void> {
@@ -45,7 +45,12 @@ struct AboutPage {
           { text: '不清空', color: '#666666' },
           { text: '清空', color: '#007DFF' }
         ]
-      }).then((r) => { if (r.index === 1) { clearErrorLog(); this.refreshLogSize(); } });
+      }).then((r) => {
+        if (r.index === 1) {
+          clearErrorLog();
+          this.refreshLogSize();
+        }
+      });
     } catch (e) {
       this.getUIContext().getPromptAction().showToast({ message: '复制失败: ' + String(e) });
     }
@@ -132,150 +137,165 @@ struct AboutPage {
     }
   }
 
-  build() {
-    Column() {
-      // 标题栏
-      Row() {
-        Image($r('app.media.ic_public_arrow_left_filled'))
-          .width(24)
-          .height(24)
-          .fillColor(this.isDarkMode ? '#FFFFFF' : '#000000')
-          .onClick(() => this.getUIContext().getRouter().back())
+  @Builder
+  CardRowItem(title: string, valueText: string, onClick: () => void, isSmallVal: boolean = false) {
+    Row() {
+      Text(title)
+        .fontSize(16)
+        .fontColor($r('sys.color.font_primary'))
+        .layoutWeight(1)
 
-        Text('关于软件')
-          .fontSize(20)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(this.isDarkMode ? '#FFFFFF' : '#000000')
-          .margin({ left: 16 })
-
-        Blank()
+      if (valueText.length > 0) {
+        Text(valueText)
+          .fontSize(isSmallVal ? 12 : 14)
+          .fontColor($r('sys.color.font_secondary'))
+          .margin({ right: 6 })
       }
-      .width('100%')
-      .padding({ top: 16 + this.statusBarHeight, left: 16, right: 16, bottom: 16 })
-      .backgroundColor(this.isDarkMode ? '#1C1C1E' : '#FFFFFF')
 
-      // 主体内容
-      Column() {
-        // 应用图标
-        Image($r('app.media.icon'))
-          .width(80)
-          .height(80)
-          .borderRadius(20)
-          .margin({ bottom: 20 })
-
-        // 应用名称
-        Text('云上太学')
-          .fontSize(22)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(this.isDarkMode ? '#FFFFFF' : '#1C1C1E')
-          .margin({ bottom: 8 })
-
-        // 版本号
-        Text('v' + this.appVersion)
-          .fontSize(14)
-          .fontColor(this.isDarkMode ? '#8E8E93' : '#8E8E93')
-          .margin({ bottom: 4 })
-
-        Text('Build 1000022')
-          .fontSize(11)
-          .fontColor(this.isDarkMode ? '#636366' : '#C7C7CC')
-
-        // ⭐ 清除缓存按钮
-        Column() {
-          Row() {
-            Text('清除缓存')
-              .fontSize(16)
-              .fontColor(this.isDarkMode ? '#FFFFFF' : '#000000')
-            Blank()
-            Text(this.cacheSizeText)
-              .fontSize(14)
-              .fontColor('#8E8E93')
-              .margin({ right: 8 })
-          }
-          .width('100%')
-          .padding(16)
-        }
-        .width('100%')
-        .margin({ top: 24 })
-        .borderRadius(14)
-        .backgroundColor(this.isDarkMode ? '#1C1C1E' : '#FFFFFF')
-        .scale({ x: this.btnScale, y: this.btnScale })
-        .animation({ duration: 120, curve: Curve.EaseOut })
-        .onTouch((event: TouchEvent) => {
-          animateTo({ duration: 80, curve: Curve.EaseOut }, () => {
-            this.btnScale = event.type === TouchType.Down ? 0.96 : 1;
-          });
-        })
-        .onClick(() => this.clearCache())
-
-        // ⭐ DASH PoC 验证入口（验证后可整体移除）
-        Column() {
-          Row() {
-            Text('DASH PoC 验证')
-              .fontSize(16)
-              .fontColor(this.isDarkMode ? '#FFFFFF' : '#000000')
-            Blank()
-            Text('单播放器 DASH 双流')
-              .fontSize(12)
-              .fontColor('#8E8E93')
-              .margin({ right: 8 })
-          }
-          .width('100%')
-          .padding(16)
-        }
-        .width('100%')
-        .margin({ top: 12 })
-        .borderRadius(14)
-        .backgroundColor(this.isDarkMode ? '#1C1C1E' : '#FFFFFF')
-        .onClick(() => this.getUIContext().getRouter().pushUrl({ url: 'pages/DashPocPage' }))
-
-        // ⭐ 提取错误日志
-        Column() {
-          Row() {
-            Text('提取错误日志')
-              .fontSize(16)
-              .fontColor(this.isDarkMode ? '#FFFFFF' : '#000000')
-            Blank()
-            Text(this.logSizeText)
-              .fontSize(14)
-              .fontColor('#8E8E93')
-              .margin({ right: 8 })
-          }
-          .width('100%')
-          .padding(16)
-        }
-        .width('100%')
-        .margin({ top: 12 })
-        .borderRadius(14)
-        .backgroundColor(this.isDarkMode ? '#1C1C1E' : '#FFFFFF')
-        .scale({ x: this.logBtnScale, y: this.logBtnScale })
-        .animation({ duration: 120, curve: Curve.EaseOut })
-        .onTouch((event: TouchEvent) => {
-          animateTo({ duration: 80, curve: Curve.EaseOut }, () => {
-            this.logBtnScale = event.type === TouchType.Down ? 0.96 : 1;
-          });
-        })
-        .onClick(() => this.extractErrorLog())
-      }
-      .width('100%')
-      .padding({ left: 16, right: 16 })
-      .layoutWeight(1)
-      .justifyContent(FlexAlign.Center)
-      .alignItems(HorizontalAlign.Center)
-
-      // 底部版权信息
-      Column() {
-        Text('开发学习，不对外传播。')
-          .fontSize(14)
-          .fontColor(this.isDarkMode ? '#FFFFFF' : '#000000')
-          .textAlign(TextAlign.Center)
-          .opacity(0.5)
-      }
-      .width('100%')
-      .padding({ bottom: 40 })
+      SymbolGlyph($r('sys.symbol.chevron_right'))
+        .fontSize(14)
+        .fontColor([$r('sys.color.icon_secondary')])
     }
-    .backgroundColor(this.isDarkMode ? '#000000' : '#F5F5F5')
-    .height('100%')
     .width('100%')
+    .height(56)
+    .padding({ left: 16, right: 16 })
+    .alignItems(VerticalAlign.Center)
+    .onClick(() => onClick())
+  }
+
+  build() {
+    HdsNavigation() {
+      Scroll() {
+        Column() {
+          // 应用图标与信息
+          Column() {
+            Image($r('app.media.icon'))
+              .width(100)
+              .height(100)
+              .borderRadius(24)
+              .objectFit(ImageFit.Contain)
+              .margin({ top: 24, bottom: 16 })
+
+            Text('云上太学')
+              .fontSize(24)
+              .fontWeight(FontWeight.Bold)
+              .fontColor($r('sys.color.font_primary'))
+              .margin({ bottom: 6 })
+
+            Text(`v${this.appVersion}`)
+              .fontSize(14)
+              .fontColor($r('sys.color.font_secondary'))
+              .margin({ bottom: 28 })
+          }
+          .width('100%')
+          .alignItems(HorizontalAlign.Center)
+
+          // 核心功能维护卡片（Hivid 分组卡片风格）
+          Column() {
+            this.CardRowItem('清除缓存', this.cacheSizeText, () => this.clearCache())
+
+            Divider()
+
+            this.CardRowItem('提取错误日志', this.logSizeText, () => this.extractErrorLog())
+
+            Divider()
+
+            this.CardRowItem('DASH PoC 验证', '单播放器 DASH 双流', () => {
+              this.getUIContext().getRouter().pushUrl({ url: 'pages/DashPocPage' });
+            }, true)
+          }
+          .width('94%')
+          .backgroundColor($r('app.color.card_background'))
+          .borderRadius(15)
+
+          // 声明卡片
+          Column() {
+            Row() {
+              Text('免责声明')
+                .fontSize(16)
+                .fontColor($r('sys.color.font_primary'))
+              Blank()
+              Text('开发学习交流使用，不对外传播')
+                .fontSize(12)
+                .fontColor($r('sys.color.font_secondary'))
+            }
+            .width('100%')
+            .height(56)
+            .padding({ left: 16, right: 16 })
+            .alignItems(VerticalAlign.Center)
+
+            Divider()
+
+            Row() {
+              Text('开源声明')
+                .fontSize(16)
+                .fontColor($r('sys.color.font_primary'))
+              Blank()
+              Text('遵循开源许可证规定')
+                .fontSize(12)
+                .fontColor($r('sys.color.font_secondary'))
+            }
+            .width('100%')
+            .height(56)
+            .padding({ left: 16, right: 16 })
+            .alignItems(VerticalAlign.Center)
+          }
+          .width('94%')
+          .margin({ top: 16, bottom: 40 })
+          .backgroundColor($r('app.color.card_background'))
+          .borderRadius(15)
+        }
+        .width('100%')
+        .padding({ top: this.statusBarHeight + 56, bottom: 32 })
+      }
+      .width('100%')
+      .height('100%')
+      .edgeEffect(EdgeEffect.Spring)
+      .scrollBar(BarState.Off)
+    }
+    .titleBar({
+      avoidLayoutSafeArea: true,
+      padding: { start: LengthMetrics.vp(16), end: LengthMetrics.vp(16) },
+      style: {
+        scrollEffectOpts: {
+          enableScrollEffect: true,
+          scrollEffectType: ScrollEffectType.GRADIENT_BLUR,
+          blurEffectiveStartOffset: LengthMetrics.vp(0),
+          blurEffectiveEndOffset: LengthMetrics.vp(20)
+        },
+        systemMaterialEffect: {
+          materialType: hdsMaterial.MaterialType.ADAPTIVE,
+          materialLevel: hdsMaterial.MaterialLevel.EXQUISITE
+        },
+        originalStyle: {
+          backgroundStyle: { backgroundColor: 'transparent' },
+          contentStyle: {
+            titleStyle: { mainTitleColor: $r('sys.color.font_primary'), subTitleColor: $r('sys.color.font_secondary') },
+            menuStyle: { backgroundColor: $r('sys.color.comp_background_tertiary'), iconColor: $r('sys.color.icon_primary') },
+            backIconStyle: { backgroundColor: $r('sys.color.comp_background_tertiary'), iconColor: $r('sys.color.icon_primary') }
+          }
+        },
+        scrollEffectStyle: {
+          backgroundStyle: { backgroundColor: 'transparent' },
+          contentStyle: {
+            titleStyle: { mainTitleColor: $r('sys.color.font_primary'), subTitleColor: $r('sys.color.font_secondary') },
+            menuStyle: { backgroundColor: $r('sys.color.comp_background_tertiary'), iconColor: $r('sys.color.icon_primary') },
+            backIconStyle: { backgroundColor: $r('sys.color.comp_background_tertiary'), iconColor: $r('sys.color.icon_primary') }
+          }
+        }
+      },
+      content: {
+        title: {
+          mainTitle: '关于软件'
+        }
+      }
+    })
+    .titleMode(HdsNavigationTitleMode.MINI)
+    .hideBackButton(false)
+    .mode(NavigationMode.Stack)
+    .width('100%')
+    .height('100%')
+    .backgroundColor($r('app.color.page_background'))
+    .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
   }
 }
