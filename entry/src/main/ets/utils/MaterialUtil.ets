@@ -22,6 +22,8 @@ export class MaterialUtil {
   private static pillMat_: uiMaterial.Material | null = null;
   private static emoteChecked_: boolean = false;
   private static emoteMat_: uiMaterial.Material | null = null;
+  private static menuChecked_: boolean = false;
+  private static menuMat_: uiMaterial.Material | null = null;
 
   /** 本机（系统 + 设备）是否支持沉浸光感 —— 纯能力探测，无副作用 */
   static available(): boolean {
@@ -124,5 +126,50 @@ export class MaterialUtil {
       logWarn('[MaterialUtil] 创建表情面板专用材质失败: ' + e);
     }
     return MaterialUtil.emoteMat_ ?? undefined;
+  }
+
+  /**
+   * 选项菜单（`promptAction.openMenu` / `bindContextMenu`）专用材质（独立实例）。
+   *
+   * ⭐ 配方对齐官方「菜单栏适配沉浸光感」示例：THICK + interactive:true + 默认光色
+   * （`{ color: undefined }` = 用系统默认光，不是关）。菜单要保留按压光斑，
+   * 与本文件上半部"输入面板去光只留玻璃"（interactive:false + lightEffect:null）口径不同，勿混用。
+   *
+   * ⚠️ 仍受 sheetMaterial 那条血泪教训约束：材质实例与挂载表面绑定，不能跨表面复用，
+   * 所以这里独立新建，不与 sheet/pill/emote 共用。
+   */
+  static menuMaterial(): uiMaterial.Material | undefined {
+    if (MaterialUtil.menuChecked_) {
+      return MaterialUtil.menuMat_ ?? undefined;
+    }
+    MaterialUtil.menuChecked_ = true;
+    try {
+      if (MaterialUtil.available()) {
+        MaterialUtil.menuMat_ = new uiMaterial.ImmersiveMaterial({
+          style: uiMaterial.ImmersiveStyle.THICK,
+          interactive: true,
+          lightEffect: { color: undefined }
+        });
+        logInfo('[MaterialUtil] 选项菜单材质已创建（THICK + 按压光）');
+      }
+    } catch (e) {
+      logWarn('[MaterialUtil] 创建选项菜单材质失败，按不支持处理: ' + e);
+    }
+    return MaterialUtil.menuMat_ ?? undefined;
+  }
+
+  /**
+   * 给弹层 options **动态补挂** `systemMaterial`。
+   *
+   * ⛔ 绝不能把 `systemMaterial` 写死在 options 字面量里：该字段 @since 26.0.0，
+   * 老机解析会打挂整棵子树（云上视界工程实测）。必须能力探测通过后按属性赋值。
+   * 不支持时原样返回（走无材质的系统默认外观）。
+   */
+  static attachMenuMaterial<T extends object>(options: T): T {
+    const mat = MaterialUtil.menuMaterial();
+    if (mat !== undefined) {
+      (options as Record<string, Object>)['systemMaterial'] = mat;
+    }
+    return options;
   }
 }
