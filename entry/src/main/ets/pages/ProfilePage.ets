@@ -682,7 +682,7 @@ export struct ProfilePage {
             .fontWeight(FontWeight.Medium)
           Text('关闭=跟随系统字体大小与界面缩放')
             .fontSize(11)
-            .fontColor(this.isDarkMode ? '#AAAAAA' : '#888888')
+            .fontColor(this.isDarkMode ? '#AAAAAA' : '#000000')
             .margin({ top: 4 })
         }
         .alignItems(HorizontalAlign.Start)
@@ -779,7 +779,7 @@ export struct ProfilePage {
 
         Text('开启后不再跟随系统设置；恢复跟随需重启应用。')
           .fontSize(11)
-          .fontColor(this.isDarkMode ? '#8E8E93' : '#999999')
+          .fontColor(this.isDarkMode ? '#8E8E93' : '#000000')
           .margin({ bottom: 10 })
 
         Button() {
@@ -1134,11 +1134,11 @@ export struct ProfilePage {
     Row() {
       Image(icon)
         .width(24).height(24)
-        .fillColor(this.isDarkMode ? '#E5E5E5' : '#333333')
+        .fillColor(this.isDarkMode ? '#E5E5E5' : '#000000')
         .margin({ right: 14 })
       Text(title)
         .fontSize(16)
-        .fontColor(this.isDarkMode ? '#E5E5E5' : '#333333')
+        .fontColor(this.isDarkMode ? '#E5E5E5' : '#000000')
         .fontWeight(FontWeight.Medium)
       Blank()
       Text(value)
@@ -1148,7 +1148,7 @@ export struct ProfilePage {
       Circle()
         .width(8)
         .height(8)
-        .fill(this.isDarkMode ? '#E5E5E5' : '#333333')
+        .fill(this.isDarkMode ? '#E5E5E5' : '#000000')
         .margin({ right: 19 })
     }
     .width('100%')
@@ -1176,11 +1176,11 @@ export struct ProfilePage {
       Blank()
       Text(value)
         .fontSize(14)
-        .fontColor(this.isDarkMode ? '#BBBBBB' : '#666666')
+        .fontColor(this.isDarkMode ? '#BBBBBB' : '#000000')
         .margin({ right: 10 })
       Image($r('app.media.chevron_right'))
         .width(16).height(16)
-        .fillColor(this.isDarkMode ? '#E5E5E5' : '#333333')
+        .fillColor(this.isDarkMode ? '#E5E5E5' : '#000000')
     }
     .width('100%')
     .height(48)
@@ -1221,12 +1221,12 @@ export struct ProfilePage {
       Row() {
         Image(icon)
           .width(24).height(24)
-          .fillColor(this.isDarkMode ? '#E5E5E5' : '#333333')
+          .fillColor(this.isDarkMode ? '#E5E5E5' : '#000000')
           .margin({ right: 14 })
         Column() {
           Text(title)
             .fontSize(16)
-            .fontColor(this.isDarkMode ? '#E5E5E5' : '#333333')
+            .fontColor(this.isDarkMode ? '#E5E5E5' : '#000000')
             .fontWeight(FontWeight.Medium)
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -1235,7 +1235,9 @@ export struct ProfilePage {
           if (desc.length > 0) {
             Text(desc)
               .fontSize(12)
-              .fontColor(this.isDarkMode ? '#999999' : '#888888')
+              // 浅色用纯黑 + 0.6 不透明度：既是黑色系，又与主标题拉开层级
+              .fontColor(this.isDarkMode ? '#999999' : '#000000')
+              .opacity(this.isDarkMode ? 1 : 0.6)
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
               .margin({ top: 2 })
@@ -1296,17 +1298,17 @@ export struct ProfilePage {
       Row() {
         Image(icon)
           .width(24).height(24)
-          .fillColor(this.isDarkMode ? '#E5E5E5' : '#333333')
+          .fillColor(this.isDarkMode ? '#E5E5E5' : '#000000')
           .margin({ right: 14 })
         Text(title)
           .fontSize(16)
-          .fontColor(this.isDarkMode ? '#E5E5E5' : '#333333')
+          .fontColor(this.isDarkMode ? '#E5E5E5' : '#000000')
           .fontWeight(FontWeight.Medium)
         Blank()
         Circle()
           .width(8)
           .height(8)
-          .fill(this.isDarkMode ? '#E5E5E5' : '#333333')
+          .fill(this.isDarkMode ? '#E5E5E5' : '#000000')
           .margin({ right: 19 })
       }
       .width('100%')
@@ -1351,17 +1353,17 @@ export struct ProfilePage {
       Row() {
         Image(icon)
           .width(24).height(24)
-          .fillColor(this.isDarkMode ? '#E5E5E5' : '#333333')
+          .fillColor(this.isDarkMode ? '#E5E5E5' : '#000000')
           .margin({ right: 14 })
         Text(title)
           .fontSize(16)
-          .fontColor(this.isDarkMode ? '#E5E5E5' : '#333333')
+          .fontColor(this.isDarkMode ? '#E5E5E5' : '#000000')
           .fontWeight(FontWeight.Medium)
         Blank()
         Circle()
           .width(8)
           .height(8)
-          .fill(this.isDarkMode ? '#E5E5E5' : '#333333')
+          .fill(this.isDarkMode ? '#E5E5E5' : '#000000')
           .margin({ right: 19 })
       }
       .width('100%')
@@ -1417,42 +1419,76 @@ export struct ProfilePage {
                 .height('100%')
 
               Row() {
-                if (this.isLoggedIn && this.userAvatarUrl) {
-                  Image(this.userAvatarUrl)
-                    .width(56)
-                    .height(56)
-                    .borderRadius(28)
-                    .objectFit(ImageFit.Cover)
-                } else {
-                  Circle({ width: 56, height: 56 })
-                    .fill(this.isLoggedIn ? this.customThemeColor : (this.isDarkMode ? '#333333' : '#E0E0E0'))
+                // 左侧占位：与右侧退出按钮等宽，让中间的头像+名称真正居中
+                // （退出按钮只在登录时出现，未登录时不占位，内容自然居中）
+                if (this.isLoggedIn) {
+                  Row().width(30).height(30)
                 }
-                Column() {
-                  Text(this.userDisplayName)
-                    .fontSize(16)
-                    .fontWeight(FontWeight.Medium)
-                    .fontColor($r('app.color.color_primary_text'))
-                  if (this.isLoggedIn) {
-                    Text('进入个人空间')
-                      .fontSize(12)
-                      .fontColor(this.customThemeColor)
-                      .margin({ top: 4 })
-                      .fontWeight(FontWeight.Medium)
+
+                Row() {
+                  if (this.isLoggedIn && this.userAvatarUrl) {
+                    Image(this.userAvatarUrl)
+                      .width(56)
+                      .height(56)
+                      .borderRadius(28)
+                      .objectFit(ImageFit.Cover)
                   } else {
-                    Text('点击登录')
-                      .fontSize(12)
-                      .fontColor(this.customThemeColor)
-                      .margin({ top: 4 })
-                      .fontWeight(FontWeight.Medium)
+                    Circle({ width: 56, height: 56 })
+                      .fill(this.isLoggedIn ? this.customThemeColor : (this.isDarkMode ? '#333333' : '#E0E0E0'))
                   }
+                  Column() {
+                    // 名称过长时单行省略，避免顶到右侧退出按钮
+                    Text(this.userDisplayName)
+                      .fontSize(16)
+                      .fontWeight(FontWeight.Medium)
+                      .fontColor($r('app.color.color_primary_text'))
+                      .maxLines(1)
+                      .textOverflow({ overflow: TextOverflow.Ellipsis })
+                      .constraintSize({ maxWidth: 132 })
+                    if (this.isLoggedIn) {
+                      Text('进入个人空间')
+                        .fontSize(12)
+                        .fontColor(this.customThemeColor)
+                        .margin({ top: 4 })
+                        .fontWeight(FontWeight.Medium)
+                    } else {
+                      Text('点击登录')
+                        .fontSize(12)
+                        .fontColor(this.customThemeColor)
+                        .margin({ top: 4 })
+                        .fontWeight(FontWeight.Medium)
+                    }
+                  }
+                  .margin({ left: 12 })
+                  .alignItems(HorizontalAlign.Start)
+                  .constraintSize({ maxWidth: 132 })
                 }
-                .margin({ left: 12 })
-                .alignItems(HorizontalAlign.Start)
-                .constraintSize({ maxWidth: 180 })
+                .layoutWeight(1)
+                .justifyContent(FlexAlign.Center)
+                .alignItems(VerticalAlign.Center)
+
+                // ⭐ 退出登录：与头像同一排，靠右
+                // 深浅色互为反色（深色白底黑图标 / 浅色黑底白图标），与「欢迎加入」卡片同一套规则
+                if (this.isLoggedIn) {
+                  Stack() {
+                    Circle({ width: 30, height: 30 })
+                      .fill(this.isDarkMode ? '#FFFFFF' : '#000000')
+                    Image(this.isDarkMode
+                      ? $r('app.media.trash_fituichu')
+                      : $r('app.media.trash_fituichu_white'))
+                      .width(15)
+                      .height(15)
+                  }
+                  .width(30)
+                  .height(30)
+                  .clickEffect({ level: 2, scale: 0.88 })
+                  .onClick(() => { this.showLogoutConfirm(); })
+                }
               }
               .alignItems(VerticalAlign.Center)
               .justifyContent(FlexAlign.Center)
               .padding({ left: 12, right: 12 })
+              .width('100%')
               .height('100%')
               .clickEffect({ level: 2, scale: 0.93 })
             }
@@ -1503,11 +1539,11 @@ export struct ProfilePage {
               Column() {
                 Image(this.isDarkMode ? $r('app.media.ic_settings_darkmode') : $r('app.media.sun_min'))
                   .width(32).height(32)
-                  .fillColor(this.isDarkMode ? '#E5E5E5' : '#333333')
+                  .fillColor(this.isDarkMode ? '#E5E5E5' : '#000000')
                   .margin({ bottom: 8 })
                 Text(this.isDarkMode ? '深色' : '浅色')
                   .fontSize(14)
-                  .fontColor(this.isDarkMode ? '#E5E5E5' : '#333333')
+                  .fontColor(this.isDarkMode ? '#E5E5E5' : '#000000')
                   .fontWeight(FontWeight.Medium)
                 Text('')
                   .fontSize(16)
@@ -1559,11 +1595,11 @@ export struct ProfilePage {
               Column() {
                 Image($r('app.media.ic_settings_history'))
                   .width(32).height(32)
-                  .fillColor(this.isDarkMode ? '#E5E5E5' : '#333333')
+                  .fillColor(this.isDarkMode ? '#E5E5E5' : '#000000')
                   .margin({ bottom: 8 })
                 Text('历史记录')
                   .fontSize(14)
-                  .fontColor(this.isDarkMode ? '#E5E5E5' : '#333333')
+                  .fontColor(this.isDarkMode ? '#E5E5E5' : '#000000')
                   .fontWeight(FontWeight.Medium)
                 Text('')
                   .fontSize(16)
@@ -1607,11 +1643,11 @@ export struct ProfilePage {
               Column() {
                 Image($r('app.media.ic_public_folder'))
                   .width(32).height(32)
-                  .fillColor(this.isDarkMode ? '#E5E5E5' : '#333333')
+                  .fillColor(this.isDarkMode ? '#E5E5E5' : '#000000')
                   .margin({ bottom: 8 })
                 Text('我的收藏')
                   .fontSize(14)
-                  .fontColor(this.isDarkMode ? '#E5E5E5' : '#333333')
+                  .fontColor(this.isDarkMode ? '#E5E5E5' : '#000000')
                   .fontWeight(FontWeight.Medium)
                 Text('')
                   .fontSize(16)
@@ -1655,11 +1691,11 @@ export struct ProfilePage {
               Column() {
                 Image($r('app.media.save'))
                   .width(32).height(32)
-                  .fillColor(this.isDarkMode ? '#E5E5E5' : '#333333')
+                  .fillColor(this.isDarkMode ? '#E5E5E5' : '#000000')
                   .margin({ bottom: 8 })
                 Text('离线缓存')
                   .fontSize(14)
-                  .fontColor(this.isDarkMode ? '#E5E5E5' : '#333333')
+                  .fontColor(this.isDarkMode ? '#E5E5E5' : '#000000')
                   .fontWeight(FontWeight.Medium)
                 Text('')
                   .fontSize(16)
@@ -1698,7 +1734,7 @@ export struct ProfilePage {
             .margin({ left: 24, bottom: 16 })
 
           if (!this.isLandscape) {
-            // ── 竖屏：单列（卡片 + 搜索发现 + 关于我们）──
+            // ── 竖屏：单列（卡片 + 搜索发现 + 关于软件）──
             Column() {
               // 动画·背景·色彩（原个性化）
               Stack() {
@@ -1717,17 +1753,17 @@ export struct ProfilePage {
                 Row() {
                   Image($r('app.media.ic_settings_personalize'))
                     .width(24).height(24)
-                    .fillColor(this.isDarkMode ? '#E5E5E5' : '#333333')
+                    .fillColor(this.isDarkMode ? '#E5E5E5' : '#000000')
                     .margin({ right: 14 })
                   Column() {
                     Text('个性化')
                       .fontSize(16)
-                      .fontColor(this.isDarkMode ? '#E5E5E5' : '#333333')
+                      .fontColor(this.isDarkMode ? '#E5E5E5' : '#000000')
                       .fontWeight(FontWeight.Medium)
                       .margin({ bottom: 6 })
                     Text('动画·背景·色彩')
                       .fontSize(11)
-                      .fontColor(this.isDarkMode ? '#BBBBBB' : '#666666')
+                      .fontColor(this.isDarkMode ? '#BBBBBB' : '#000000')
                       .fontWeight(FontWeight.Normal)
                   }
                   .alignItems(HorizontalAlign.Start)
@@ -1735,7 +1771,7 @@ export struct ProfilePage {
                   Circle()
                     .width(8)
                     .height(8)
-                    .fill(this.isDarkMode ? '#E5E5E5' : '#333333')
+                    .fill(this.isDarkMode ? '#E5E5E5' : '#000000')
                     .margin({ right: 19 })
                 }
                 .width('100%')
@@ -1778,17 +1814,17 @@ export struct ProfilePage {
                 Row() {
                   Image($r('app.media.transparency_lock'))
                     .width(24).height(24)
-                    .fillColor(this.isDarkMode ? '#E5E5E5' : '#333333')
+                    .fillColor(this.isDarkMode ? '#E5E5E5' : '#000000')
                     .margin({ right: 14 })
                   Column() {
                     Text('卡片样式')
                       .fontSize(16)
-                      .fontColor(this.isDarkMode ? '#E5E5E5' : '#333333')
+                      .fontColor(this.isDarkMode ? '#E5E5E5' : '#000000')
                       .fontWeight(FontWeight.Medium)
                       .margin({ bottom: 6 })
                     Text('圆角·边距·色彩')
                       .fontSize(11)
-                      .fontColor(this.isDarkMode ? '#BBBBBB' : '#666666')
+                      .fontColor(this.isDarkMode ? '#BBBBBB' : '#000000')
                       .fontWeight(FontWeight.Normal)
                   }
                   .alignItems(HorizontalAlign.Start)
@@ -1796,7 +1832,7 @@ export struct ProfilePage {
                   Circle()
                     .width(8)
                     .height(8)
-                    .fill(this.isDarkMode ? '#E5E5E5' : '#333333')
+                    .fill(this.isDarkMode ? '#E5E5E5' : '#000000')
                     .margin({ right: 19 })
                 }
                 .width('100%')
@@ -1839,17 +1875,17 @@ export struct ProfilePage {
                 Row() {
                   Image($r('app.media.chicun'))
                     .width(24).height(24)
-                    .fillColor(this.isDarkMode ? '#E5E5E5' : '#333333')
+                    .fillColor(this.isDarkMode ? '#E5E5E5' : '#000000')
                     .margin({ right: 14 })
                   Column() {
                     Text('应用比例调节')
                       .fontSize(16)
-                      .fontColor(this.isDarkMode ? '#E5E5E5' : '#333333')
+                      .fontColor(this.isDarkMode ? '#E5E5E5' : '#000000')
                       .fontWeight(FontWeight.Medium)
                       .margin({ bottom: 6 })
                     Text('界面缩放·文字大小')
                       .fontSize(11)
-                      .fontColor(this.isDarkMode ? '#BBBBBB' : '#666666')
+                      .fontColor(this.isDarkMode ? '#BBBBBB' : '#000000')
                       .fontWeight(FontWeight.Normal)
                   }
                   .alignItems(HorizontalAlign.Start)
@@ -1857,7 +1893,7 @@ export struct ProfilePage {
                   Circle()
                     .width(8)
                     .height(8)
-                    .fill(this.isDarkMode ? '#E5E5E5' : '#333333')
+                    .fill(this.isDarkMode ? '#E5E5E5' : '#000000')
                     .margin({ right: 19 })
                 }
                 .width('100%')
@@ -1963,7 +1999,7 @@ export struct ProfilePage {
               Row() {
                 Image($r('app.media.ic_public_albums'))
                   .width(24).height(24)
-                  .fillColor(this.isDarkMode ? '#E5E5E5' : '#333333')
+                  .fillColor(this.isDarkMode ? '#E5E5E5' : '#000000')
                   .margin({ right: 14 })
                 Text('轮播选项')
                   .fontSize(15)
@@ -1975,7 +2011,7 @@ export struct ProfilePage {
                 Blank()
                 Image($r('app.media.ic_public_arrow_left_filled'))
                   .width(20).height(20)
-                  .fillColor(this.isDarkMode ? '#E5E5E5' : '#333333')
+                  .fillColor(this.isDarkMode ? '#E5E5E5' : '#000000')
                   .rotate({ angle: this.carouselExpanded ? 90 : -90 })
                   .animation({ duration: 200, curve: Curve.FastOutSlowIn })
               }
@@ -2009,7 +2045,7 @@ export struct ProfilePage {
                 Row() {
                   Image($r('app.media.ic_public_devices_phone_filled'))
                     .width(24).height(24)
-                    .fillColor(this.isDarkMode ? '#E5E5E5' : '#333333')
+                    .fillColor(this.isDarkMode ? '#E5E5E5' : '#000000')
                     .margin({ right: 14 })
                   Text('竖屏轮播图')
                     .fontSize(15)
@@ -2057,7 +2093,7 @@ export struct ProfilePage {
                 Row() {
                   Image($r('app.media.ic_settings_wallpaper'))
                     .width(24).height(24)
-                    .fillColor(this.isDarkMode ? '#E5E5E5' : '#333333')
+                    .fillColor(this.isDarkMode ? '#E5E5E5' : '#000000')
                     .margin({ right: 14 })
                   Text('竖屏轮播背景')
                     .fontSize(15)
@@ -2105,7 +2141,7 @@ export struct ProfilePage {
                 Row() {
                   Image($r('app.media.ic_public_devices_phone_filled'))
                     .width(24).height(24)
-                    .fillColor(this.isDarkMode ? '#E5E5E5' : '#333333')
+                    .fillColor(this.isDarkMode ? '#E5E5E5' : '#000000')
                     .margin({ right: 14 })
                     .rotate({ angle: 90 })
                   Text('横屏轮播图')
@@ -2154,7 +2190,7 @@ export struct ProfilePage {
                 Row() {
                   Image($r('app.media.ic_settings_wallpaper'))
                     .width(24).height(24)
-                    .fillColor(this.isDarkMode ? '#E5E5E5' : '#333333')
+                    .fillColor(this.isDarkMode ? '#E5E5E5' : '#000000')
                     .margin({ right: 14 })
                   Text('横屏轮播背景')
                     .fontSize(15)
@@ -2202,7 +2238,7 @@ export struct ProfilePage {
                 Row() {
                   Image($r('app.media.ic_settings_wallpaper'))
                     .width(24).height(24)
-                    .fillColor(this.isDarkMode ? '#E5E5E5' : '#333333')
+                    .fillColor(this.isDarkMode ? '#E5E5E5' : '#000000')
                     .margin({ right: 14 })
                   Text('背景圆角')
                     .fontSize(15)
@@ -2253,7 +2289,7 @@ export struct ProfilePage {
               Row() {
                 Image($r('app.media.ic_public_edit_filled'))
                   .width(24).height(24)
-                  .fillColor(this.isDarkMode ? '#E5E5E5' : '#333333')
+                  .fillColor(this.isDarkMode ? '#E5E5E5' : '#000000')
                   .margin({ right: 14 })
                 Text('轮播图标题选项')
                   .fontSize(15)
@@ -2265,7 +2301,7 @@ export struct ProfilePage {
                 Blank()
                 Image($r('app.media.ic_public_arrow_left_filled'))
                   .width(20).height(20)
-                  .fillColor(this.isDarkMode ? '#E5E5E5' : '#333333')
+                  .fillColor(this.isDarkMode ? '#E5E5E5' : '#000000')
                   .rotate({ angle: this.carouselTitleExpanded ? 90 : -90 })
                   .animation({ duration: 200, curve: Curve.FastOutSlowIn })
               }
@@ -2655,9 +2691,6 @@ export struct ProfilePage {
 
           this.SectionHeader('关于')
           this.SettingItem($r('app.media.ic_settings_about'), '关于软件', () => { this.goToAbout(); })
-          if (this.isLoggedIn) {
-            this.SettingItem($r('app.media.backspace_1'), '退出登录', () => { this.showLogoutConfirm(); })
-          }
         } else {
             // ── 横屏：双列 ──
             Row({ space: 12 }) {
@@ -2680,17 +2713,17 @@ export struct ProfilePage {
                   Row() {
                     Image($r('app.media.ic_settings_personalize'))
                       .width(24).height(24)
-                      .fillColor(this.isDarkMode ? '#E5E5E5' : '#333333')
+                      .fillColor(this.isDarkMode ? '#E5E5E5' : '#000000')
                       .margin({ right: 14 })
                     Column() {
                       Text('个性化')
                         .fontSize(16)
-                        .fontColor(this.isDarkMode ? '#E5E5E5' : '#333333')
+                        .fontColor(this.isDarkMode ? '#E5E5E5' : '#000000')
                         .fontWeight(FontWeight.Medium)
                         .margin({ bottom: 6 })
                       Text('动画·背景·色彩')
                         .fontSize(11)
-                        .fontColor(this.isDarkMode ? '#BBBBBB' : '#666666')
+                        .fontColor(this.isDarkMode ? '#BBBBBB' : '#000000')
                         .fontWeight(FontWeight.Normal)
                     }
                     .alignItems(HorizontalAlign.Start)
@@ -2698,7 +2731,7 @@ export struct ProfilePage {
                     Circle()
                       .width(8)
                       .height(8)
-                      .fill(this.isDarkMode ? '#E5E5E5' : '#333333')
+                      .fill(this.isDarkMode ? '#E5E5E5' : '#000000')
                       .margin({ right: 19 })
                   }
                   .width('100%')
@@ -2741,17 +2774,17 @@ export struct ProfilePage {
                   Row() {
                     Image($r('app.media.transparency_lock'))
                       .width(24).height(24)
-                      .fillColor(this.isDarkMode ? '#E5E5E5' : '#333333')
+                      .fillColor(this.isDarkMode ? '#E5E5E5' : '#000000')
                       .margin({ right: 14 })
                     Column() {
                       Text('卡片样式')
                         .fontSize(16)
-                        .fontColor(this.isDarkMode ? '#E5E5E5' : '#333333')
+                        .fontColor(this.isDarkMode ? '#E5E5E5' : '#000000')
                         .fontWeight(FontWeight.Medium)
                         .margin({ bottom: 6 })
                       Text('圆角·边距·色彩')
                         .fontSize(11)
-                        .fontColor(this.isDarkMode ? '#BBBBBB' : '#666666')
+                        .fontColor(this.isDarkMode ? '#BBBBBB' : '#000000')
                         .fontWeight(FontWeight.Normal)
                     }
                     .alignItems(HorizontalAlign.Start)
@@ -2759,7 +2792,7 @@ export struct ProfilePage {
                     Circle()
                       .width(8)
                       .height(8)
-                      .fill(this.isDarkMode ? '#E5E5E5' : '#333333')
+                      .fill(this.isDarkMode ? '#E5E5E5' : '#000000')
                       .margin({ right: 19 })
                   }
                   .width('100%')
@@ -2876,9 +2909,6 @@ export struct ProfilePage {
           })
                 this.SectionHeader('关于')
                 this.SettingItem($r('app.media.ic_settings_about'), '关于软件', () => { this.goToAbout(); })
-                if (this.isLoggedIn) {
-                  this.SettingItem($r('app.media.backspace_1'), '退出登录', () => { this.showLogoutConfirm(); })
-                }
               }
               .layoutWeight(1)
             }
