@@ -135,13 +135,41 @@ docs/                     设计与排查文档
 > 若你是该组件的作者或知晓其许可条款，请通过 Issue 联系，
 > 我将按你的要求补充声明或移除该组件。
 
-其余代码均为本项目独立实现。开发过程中**参考**了
-[PiliPlus](https://github.com/qinshah/PiliPlus) 的接口设计与参数处理方式，
-但其为 Dart/Flutter 实现，本项目为 ArkTS 重写，**未复制其源码**。
+其余代码均为本项目独立实现。开发过程中**借鉴学习**了以下开源项目：
+
+| 项目 | 作者 | 借鉴内容 |
+|---|---|---|
+| [SweetVideo](https://github.com/Yebingiscn/SweetVideo) | Yebingiscn | 播放器手势与交互设计 |
+| [PiliPlus](https://github.com/dev4harmony/PiliPlus) | dev4harmony | 接口参数处理与播放链路 |
+
+> `PiliPlus` 为 Flutter/Dart 实现，本项目用 ArkTS 重写，**未复制其源码**。
+> 该项目为 fork 链上的一环，原始仓库为 [bggRGjQaUbCoE/PiliPlus](https://github.com/bggRGjQaUbCoE/PiliPlus)。
 
 ---
 
-## 六、许可
+## 六、贡献者
+
+感谢每一位为本项目提交代码、文档与反馈的人。
+
+| 贡献者 | 身份 | 贡献内容 |
+|---|---|---|
+| **Kshan**（[@chunwcc](https://github.com/chunwcc)） | 作者 · 维护者 | 项目发起与整体架构<br>播放器 / DASH 转播与画质选轨<br>弹幕渲染引擎（滚动 · 顶部 · 底部 · 逆向）<br>番剧选集与分集进度上报<br>开源化整理（文档 / 许可 / 脱敏） |
+| **cycoe**（[@cycoe](https://github.com/cycoe)） | 代码贡献者 | 回桌面自动画中画小窗（XComponent 模式）<br>个人空间粉丝 / 关注列表页<br>私信页刷新与回顶<br>长按视频卡片弹窗重构 + 保存封面<br>修复 1:1 横屏视频控件显示不全 |
+
+> 应用内「我的 → 关于软件」同样列有这份名单，头像为本地资源，断网可显示。
+
+### 欢迎加入共同开发
+
+有想法、发现 bug、想要新功能，提 Issue 或 PR 都可以：
+
+- [提交 Issue](https://github.com/chunwcc/yunshang-bili/issues/new/choose)
+- [提交 Pull Request](https://github.com/chunwcc/yunshang-bili/pulls)
+
+提交前请先看 [CONTRIBUTING.md](CONTRIBUTING.md)。
+
+---
+
+## 七、许可
 
 本项目自身代码使用 **MIT License**，详见 [LICENSE](LICENSE)。
 

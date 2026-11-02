@@ -9,6 +9,7 @@
     "pages/WatchHistoryPage",
     "pages/FavoritesPage",
     "pages/AboutPage",
+    "pages/ContributorsPage",
     "pages/RecommendDetectionPage",
     "pages/CommentDetailPage",
     "pages/DynamicDetailPage",
