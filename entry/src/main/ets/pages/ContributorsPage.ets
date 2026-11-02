@@ -98,44 +98,70 @@ struct ContributorsPage {
       .alt($r('app.media.icon'))
   }
 
-  /** 发起者卡片：只显示头像 / 名称 / 账号 / 角标 */
+  /** 发起者卡片：头像 / 名称 / 账号 / 角标 + 主要贡献 */
   @Builder
   FounderCard(c: ContributorItem) {
-    Row() {
-      Image(c.avatar)
-        .width(64)
-        .height(64)
-        .borderRadius(32)
-        .objectFit(ImageFit.Cover)
-        .alt($r('app.media.icon'))
-      Column() {
-        Row() {
-          Text(c.name)
-            .fontSize(17)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(this.isDarkMode ? '#FFFFFF' : '#000000')
-          if (c.role.length > 0) {
-            Text(c.role)
-              .fontSize(10)
-              .fontColor(this.isDarkMode ? '#0A84FF' : '#007DFF')
-              .borderRadius(9)
-              .borderWidth(1)
-              .borderColor(this.isDarkMode ? '#0A84FF' : '#007DFF')
-              .padding({ left: 6, right: 6 })
-              .margin({ left: 6 })
-              .opacity(0.85)
+    Column() {
+      Row() {
+        Image(c.avatar)
+          .width(64)
+          .height(64)
+          .borderRadius(32)
+          .objectFit(ImageFit.Cover)
+          .alt($r('app.media.icon'))
+        Column() {
+          Row() {
+            Text(c.name)
+              .fontSize(17)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(this.isDarkMode ? '#FFFFFF' : '#000000')
+            if (c.role.length > 0) {
+              Text(c.role)
+                .fontSize(10)
+                .fontColor(this.isDarkMode ? '#0A84FF' : '#007DFF')
+                .borderRadius(9)
+                .borderWidth(1)
+                .borderColor(this.isDarkMode ? '#0A84FF' : '#007DFF')
+                .padding({ left: 6, right: 6 })
+                .margin({ left: 6 })
+                .opacity(0.85)
+            }
           }
-        }
-        .alignItems(VerticalAlign.Center)
+          .alignItems(VerticalAlign.Center)
 
-        Text('@' + c.handle)
-          .fontSize(12)
-          .fontColor('#8E8E93')
-          .margin({ top: 4 })
+          Text('@' + c.handle)
+            .fontSize(12)
+            .fontColor('#8E8E93')
+            .margin({ top: 4 })
+        }
+        .alignItems(HorizontalAlign.Start)
+        .layoutWeight(1)
+        .margin({ left: 14 })
       }
+      .width('100%')
+      .alignItems(VerticalAlign.Top)
+
+      // ⭐ 主要贡献（与普通开发人员卡片同样式）：发起者也展示贡献条目
+      Column() {
+        ForEach(c.works, (w: string) => {
+          Row() {
+            Text('·')
+              .fontSize(12)
+              .fontColor('#8E8E93')
+              .margin({ right: 6 })
+            Text(w)
+              .fontSize(12)
+              .fontColor(this.isDarkMode ? 'rgba(255,255,255,0.78)' : 'rgba(0,0,0,0.72)')
+              .layoutWeight(1)
+          }
+          .width('100%')
+          .alignItems(VerticalAlign.Top)
+          .margin({ bottom: 4 })
+        }, (w: string) => w)
+      }
+      .width('100%')
       .alignItems(HorizontalAlign.Start)
-      .layoutWeight(1)
-      .margin({ left: 14 })
+      .margin({ top: 10 })
     }
     .width('100%')
     .padding(16)

@@ -42,7 +42,7 @@ export const CONTRIBUTORS: ContributorItem[] = [
     isFounder: true,
     role: '发起者',
     works: [
-      '项目发起与整体架构',
+      '项目发起与整体架构 · 前端设计与交互',
       '播放器 / DASH 转播与画质选轨',
       '弹幕渲染引擎（滚动·顶部·底部·逆向）',
       '番剧选集与分集进度上报',
