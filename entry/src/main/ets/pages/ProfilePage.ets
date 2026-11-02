@@ -1,5 +1,6 @@
 ﻿// ProfilePage.ets - 显示壁纸 + 消除白边（透明背景 + expandSafeArea）
 import { common, ConfigurationConstant } from '@kit.AbilityKit';
+import { BusinessError } from '@kit.BasicServicesKit';
 import { logInfo, logWarn, logError } from '../utils/Logger';
 import { hdsMaterial } from '@kit.UIDesignKit';
 import { VibrateUtils } from '../utils/VibrateUtils';
@@ -9,10 +10,12 @@ import { applyCardStyleModeArchive } from '../utils/CardStyleMode';
 import { preferences } from '@kit.ArkData';
 import { PersonalizationPage } from './PersonalizationPage';
 import { AppScaleService, SCALE_MODE_SYSTEM, SCALE_MODE_CUSTOM } from '../services/AppScaleService';
-import { window } from '@kit.ArkUI';
+import { window, ComponentContent, UIContext } from '@kit.ArkUI';
 import { CardStyleSheet } from './CardStyleSheet';
-import { getUserInfo, UserInfo } from '../api/BilibiliApi';
+import { getUserInfo, UserInfo, getUserRelationStat } from '../api/BilibiliApi';
+import { getCreatedFavFolders } from '../api/FavoritesApi';
 import { HdsMiniBarButton } from '../components/infra/HdsMiniBarButton';
+import { MaterialUtil } from '../utils/MaterialUtil';
 
 PersistentStorage.persistProp('phoneLayoutToggle', false)
 
@@ -66,6 +69,120 @@ function labelByQn(qn: number): string {
   return item ? item.label : '1080P60';
 }
 
+/** 统计条数值格式化：万/亿 缩写，未加载时返回 '--'（避免先显示 0 再跳变） */
+function fmtStatN(v: number): string {
+  if (!v || v <= 0) return '0';
+  if (v >= 100000000) return (v / 100000000).toFixed(1) + '亿';
+  if (v >= 10000) return (v / 10000).toFixed(1) + '万';
+  return v.toString();
+}
+
+/** 硬币余额格式化：money 是小数（如 104.8），整数时不带小数位 */
+function fmtCoin(v: number): string {
+  if (v < 0) return '--';
+  return Number.isInteger(v) ? v.toString() : v.toFixed(1);
+}
+
+// ────────────────────────── 画质 / 推荐源 / 弹幕数据源 的沉浸光感菜单 ──────────────────────────
+//
+// ⚠️ 菜单内容**必须是全局 @Builder 函数**：`promptAction.openMenu` 用 ComponentContent 承载内容，
+//    走的是全局节点通道，struct 的 @Builder 方法会丢 `this`（真机崩
+//    `Cannot read property observeComponentCreation2 of undefined`，崩溃点指向 builder 体第一行）。
+//    ⇒ 菜单里的状态一律走 AppStorage，页面侧用 @StorageProp + @Watch 接结果。
+//
+// ⭐ 内容用系统 `Menu() { MenuItem(...) }`：圆角/行高/弹出动画/按压反馈都是系统菜单的原生形态，
+//    自己画 Column 会变成"自定义弹窗"，观感与系统菜单不一致；且只有这条通道吃得到 systemMaterial。
+// ⛔ `Menu` 背景必须透明，否则会把沉浸光感的材质层整层盖死。
+
+/** 每次选项都带序号，保证 @Watch 一定触发（重复选同一项也能重新保存一次） */
+let profPickerSeq: number = 0;
+
+/** 把用户的选项广播给页面（payload 形如 `quality|80`） */
+function emitProfPick(payload: string): void {
+  profPickerSeq++;
+  AppStorage.setOrCreate('profPickerResult', `${payload}#${profPickerSeq}`);
+}
+
+/** 当前选中的画质（菜单展开时读一次，用于打勾） */
+function currentQn(): number {
+  return AppStorage.get<number>('defaultVideoQn') ?? DEFAULT_QN;
+}
+
+function currentRecommendApi(): string {
+  return AppStorage.get<string>('recommendApiSource') ?? 'App';
+}
+
+function currentDanmakuApi(): string {
+  return AppStorage.get<string>('danmakuApiSource') ?? 'grpc';
+}
+
+/** 菜单内容：画质（7 档，单选打勾） */
+@Builder
+function profQualityMenuContent() {
+  Menu() {
+    ForEach(QUALITY_LIST, (item: QualityItem) => {
+      MenuItem({ content: item.label })
+        .selected(currentQn() === item.qn)
+        .selectIcon(true)
+        .onChange((selected: boolean) => {
+          if (selected) {
+            emitProfPick(`quality|${item.qn}`);
+          }
+        })
+    }, (item: QualityItem) => `q${item.qn}`)
+  }
+  .backgroundColor(Color.Transparent)
+}
+
+/** 菜单内容：推荐源 */
+@Builder
+function profRecommendMenuContent() {
+  Menu() {
+    MenuItem({ content: 'Web API' })
+      .selected(currentRecommendApi() === 'Web')
+      .selectIcon(true)
+      .onChange((selected: boolean) => {
+        if (selected) {
+          emitProfPick('recommend|Web');
+        }
+      })
+    MenuItem({ content: 'App API' })
+      .selected(currentRecommendApi() === 'App')
+      .selectIcon(true)
+      .onChange((selected: boolean) => {
+        if (selected) {
+          emitProfPick('recommend|App');
+        }
+      })
+  }
+  .backgroundColor(Color.Transparent)
+}
+
+/** 菜单内容：弹幕数据源 */
+@Builder
+function profDanmakuMenuContent() {
+  Menu() {
+    MenuItem({ content: 'XML（轻量）' })
+      .selected(currentDanmakuApi() === 'xml')
+      .selectIcon(true)
+      .onChange((selected: boolean) => {
+        if (selected) {
+          emitProfPick('danmaku|xml');
+        }
+      })
+    MenuItem({ content: 'gRPC Protobuf（全量）' })
+      .selected(currentDanmakuApi() === 'grpc')
+      .selectIcon(true)
+      .onChange((selected: boolean) => {
+        if (selected) {
+          emitProfPick('danmaku|grpc');
+        }
+      })
+  }
+  .backgroundColor(Color.Transparent)
+}
+
+
 @Component({ freezeWhenInactive: true })
 export struct ProfilePage {
   @State isPersonalizationSheetShow: boolean = false;
@@ -112,7 +229,6 @@ export struct ProfilePage {
   @StorageLink('customThemeColor') customThemeColor: string = '#007DFF';
   @StorageLink('biliCookie') biliCookie: string = '';
   @StorageLink('hideStatusBar') hideStatusBar: boolean = true;
-  @StorageLink('showSearchDiscovery') showSearchDiscovery: boolean = true;
   @StorageLink('showRefreshSeparator') showRefreshSeparator: boolean = true;
   @StorageLink('phoneLayoutToggle') phoneLayoutToggle: boolean = false;
   @StorageLink('shrinkVideoOnScroll') shrinkVideoOnScroll: boolean = false;
@@ -143,6 +259,8 @@ export struct ProfilePage {
   @StorageLink('recommendApiSource') recommendApiSource: string = 'App';
   @StorageLink('danmakuApiSource') danmakuApiSource: string = 'grpc';
   @State qualityLabel: string = labelByQn(DEFAULT_QN);
+  /** 全局菜单（画质/推荐源/弹幕数据源）回传通道：全局 @Builder 拿不到 this，只能走 AppStorage */
+  @StorageProp('profPickerResult') @Watch('onProfPickerResult') profPickerResult: string = '';
   @StorageProp('refreshHomeFlag') @Watch('onLoginStateChanged') refreshHomeFlag: number = 0;
 
   /** UI 状态：直接用 @State 驱动渲染，避免 getter 不被重新求值的问题 */
@@ -150,6 +268,20 @@ export struct ProfilePage {
   @State userDisplayName: string = '未登录用户';
   @State userAvatarUrl: string = ''; // 用户头像URL
   @State userMid: number = 0;        // 当前登录用户 mid（点击头像进入个人空间）
+  // ── 等级 / 大会员 / 硬币（nav 接口自带，无额外请求）──
+  @State userLevel: number = 0;      // 0 = 未知（不显示徽章）
+  @State vipStatus: number = 0;      // 0=非大会员 1=已开通
+  @State vipType: number = 0;        // 1=月度 2=年度
+  @State userCoins: number = -1;     // -1 = 未知
+
+  // ── 统计条数据（-1 = 尚未加载，渲染成 `--`，避免先显示 0 再跳到真实值）──
+  @State statFollowing: number = -1;
+  @State statFollower: number = -1;
+  @State statFavCount: number = -1;
+  /** 统计条一次加载只发一轮请求（AboutToAppear 与登录态回调都会触发） */
+  private statsLoading: boolean = false;
+  /** 已拿到统计的 mid，用于避免重复请求 */
+  private statsLoadedMid: number = 0;
 
   /**
    * refreshHomeFlag 变化时（登录/登出后），强制更新 UI 状态。
@@ -168,9 +300,20 @@ export struct ProfilePage {
         this.userDisplayName = userInfo.uname;
         this.userAvatarUrl = userInfo.face;
         this.userMid = userInfo.mid;
+        // ⭐ nav 自带等级/大会员/硬币，无需额外请求
+        this.userLevel = userInfo.level_info?.current_level ?? 0;
+        // 大会员必须同时满足「已开通 + 未过期」：过期账号 vip.status 有时仍是 1，
+        // 只靠 status 会把过期用户显示成大会员（实测本机账号 vipDueDate=2021-04，status=0）
+        const dueDate: number = userInfo.vipDueDate ?? 0;
+        this.vipStatus = (userInfo.vip?.status === 1 && dueDate > Date.now()) ? 1 : 0;
+        this.vipType = userInfo.vip?.type ?? 0;
+        // 硬币余额 = nav 的 money（nav 没有 coins 字段）
+        this.userCoins = userInfo.money ?? -1;
         // ⭐ 缓存成功获取的资料：冷启动先显示缓存再后台刷新
         this.persistCachedProfile(userInfo.uname, userInfo.face, userInfo.mid);
-        logInfo(`[ProfilePage] 获取用户信息成功: ${userInfo.uname}`);
+        this.persistCachedBadges();
+        logInfo(`[ProfilePage] 获取用户信息成功: ${userInfo.uname}, LV${this.userLevel}, ` +
+          `大会员=${this.vipStatus === 1 ? '是' : '否'}, 硬币=${this.userCoins}`);
       } else {
         // API失败时使用备用方案：缓存优先（头像/名称立即可用），无缓存才退回 cookie DedeUserID
         let cachedName: string = '';
@@ -186,11 +329,18 @@ export struct ProfilePage {
         this.userAvatarUrl = cachedFace;
         this.userMid = match ? parseInt(match[1], 10) : 0;
       }
+      // ⭐ 拿到 mid 后拉统计条（内部按 mid 去重，重复调用无副作用）
+      this.loadUserStats(this.userMid);
     } else {
       this.userDisplayName = '未登录用户';
       this.userAvatarUrl = '';
       this.userMid = 0;
       // ⭐ 登出：清缓存，避免下次冷启动闪现旧资料
+      this.userLevel = 0;
+      this.vipStatus = 0;
+      this.vipType = 0;
+      this.userCoins = -1;
+      this.resetStats();
       this.clearCachedProfile();
     }
   }
@@ -210,7 +360,30 @@ export struct ProfilePage {
         if (face) this.userAvatarUrl = face;
         if (mid) this.userMid = mid;
       }
+      // 等级/大会员/硬币同样先读缓存，避免首屏徽章空一拍
+      const level = await this.dataPreferences.get('userLevel', 0) as number;
+      const vipStatus = await this.dataPreferences.get('vipStatus', 0) as number;
+      const vipType = await this.dataPreferences.get('vipType', 0) as number;
+      const coins = await this.dataPreferences.get('userCoins', -1) as number;
+      if (this.userLevel <= 0 && level > 0) this.userLevel = level;
+      if (this.vipStatus === 0 && vipStatus === 1) this.vipStatus = vipStatus;
+      if (this.vipType === 0 && vipType > 0) this.vipType = vipType;
+      if (this.userCoins < 0 && coins >= 0) this.userCoins = coins;
     } catch (_e) { /* 读取失败不阻断 */ }
+  }
+
+  /** ⭐ 写入等级/大会员/硬币缓存 */
+  private async persistCachedBadges(): Promise<void> {
+    if (!this.dataPreferences) return;
+    try {
+      await this.dataPreferences.put('userLevel', this.userLevel);
+      await this.dataPreferences.put('vipStatus', this.vipStatus);
+      await this.dataPreferences.put('vipType', this.vipType);
+      if (this.userCoins >= 0) {
+        await this.dataPreferences.put('userCoins', this.userCoins);
+      }
+      await this.dataPreferences.flush();
+    } catch (_e) { /* 写入失败不阻断 */ }
   }
 
   /** ⭐ 写入用户资料缓存（Preferences）：冷启动免等待网络 */
@@ -231,8 +404,113 @@ export struct ProfilePage {
       await this.dataPreferences.delete('userProfileName');
       await this.dataPreferences.delete('userProfileFace');
       await this.dataPreferences.delete('userProfileMid');
+      await this.dataPreferences.delete('userLevel');
+      await this.dataPreferences.delete('vipStatus');
+      await this.dataPreferences.delete('vipType');
+      await this.dataPreferences.delete('userCoins');
+      await this.dataPreferences.delete('statFollowing');
+      await this.dataPreferences.delete('statFollower');
+      await this.dataPreferences.delete('statFavCount');
       await this.dataPreferences.flush();
     } catch (_e) { /* 清除失败不阻断 */ }
+  }
+
+  // ──────────────────────────── 统计条：关注 / 粉丝 / 收藏 ────────────────────────────
+  //
+  // 关注 / 粉丝走 `getUserRelationStat(mid)`（一次请求拿两个数）；
+  // 收藏走 `getCreatedFavFolders`，把各收藏夹 media_count 相加（一次请求）。
+  //
+  // ⚠️ 首屏不许闪数字：数据未到时渲染 `--`（-1），不用 0 占位；
+  //    同时读 Preferences 里的上次结果先顶上，请求回来再覆盖。
+
+  /** 读上次的关系统计缓存，先显示再刷新（值不可能实时秒变，旧值肉眼无差） */
+  private async restoreCachedStats(): Promise<void> {
+    if (!this.dataPreferences) return;
+    try {
+      const following = await this.dataPreferences.get('statFollowing', -1) as number;
+      const follower = await this.dataPreferences.get('statFollower', -1) as number;
+      const favCount = await this.dataPreferences.get('statFavCount', -1) as number;
+      if (this.statFollowing < 0 && following >= 0) this.statFollowing = following;
+      if (this.statFollower < 0 && follower >= 0) this.statFollower = follower;
+      if (this.statFavCount < 0 && favCount >= 0) this.statFavCount = favCount;
+    } catch (_e) { /* 读取失败不阻断 */ }
+  }
+
+  private async persistStat(key: string, value: number): Promise<void> {
+    if (!this.dataPreferences || value < 0) return;
+    try {
+      await this.dataPreferences.put(key, value);
+      await this.dataPreferences.flush();
+    } catch (_e) { /* 写盘失败不阻断 */ }
+  }
+
+  /**
+   * 拉取统计条数据。两路请求**并行**且互不影响，任一失败都只让对应格停在旧值。
+   * 用 mid 去重：同一个用户只拉一次（切 Tab / freeze 回补都会重复触发）。
+   */
+  private async loadUserStats(mid: number): Promise<void> {
+    if (!this.isLoggedIn || mid <= 0) return;
+    if (this.statsLoading || this.statsLoadedMid === mid) return;
+    this.statsLoading = true;
+    try {
+      // ① 关注 / 粉丝
+      const relationPromise: Promise<void> = getUserRelationStat(mid).then((stat) => {
+        if (stat) {
+          this.statFollowing = stat.following ?? 0;
+          this.statFollower = stat.follower ?? 0;
+          this.persistStat('statFollowing', this.statFollowing);
+          this.persistStat('statFollower', this.statFollower);
+          this.statsLoadedMid = mid;
+        }
+      }).catch((e: Error) => {
+        logWarn(`[ProfilePage] 拉取关系统计失败: ${e}`);
+      });
+
+      // ② 收藏（各收藏夹内容数之和；先取第一页，条目多时够用且只发一次请求）
+      const favPromise: Promise<void> = getCreatedFavFolders(mid, 1, 50).then((folders) => {
+        if (folders) {
+          let total = 0;
+          for (let i = 0; i < folders.length; i++) {
+            total += folders[i].media_count || 0;
+          }
+          this.statFavCount = total;
+          this.persistStat('statFavCount', total);
+        }
+      }).catch((e: Error) => {
+        logWarn(`[ProfilePage] 拉取收藏数失败: ${e}`);
+      });
+
+      await Promise.all([relationPromise, favPromise]);
+      logInfo(`[ProfilePage] 统计条更新: 关注=${this.statFollowing}, 粉丝=${this.statFollower}, ` +
+        `收藏=${this.statFavCount}`);
+    } finally {
+      this.statsLoading = false;
+    }
+  }
+
+  /** 统计条数值（按种类在渲染期读 @State，异步数据到达即刷新） */
+  private statText(kind: string): string {
+    if (kind === 'following') return this.statFollowing < 0 ? '--' : fmtStatN(this.statFollowing);
+    if (kind === 'follower') return this.statFollower < 0 ? '--' : fmtStatN(this.statFollower);
+    return this.statFavCount < 0 ? '--' : fmtStatN(this.statFavCount);
+  }
+
+  /** 登出后清空统计条（离线数是本机的，保留；关注/粉丝/收藏属于账号） */
+  private resetStats(): void {
+    this.statFollowing = -1;
+    this.statFollower = -1;
+    this.statFavCount = -1;
+    this.statsLoadedMid = 0;
+  }
+
+  private goToRelation(type: string): void {
+    if (this.userMid <= 0) { this.goToLogin(); return; }
+    this.getUIContext().getRouter().pushUrl({
+      url: 'pages/RelationListPage',
+      params: { mid: this.userMid, type: type }
+    }).catch((err: Error) => {
+      logWarn(`[ProfilePage] 跳转关系列表失败: ${err}`);
+    });
   }
 
   @State statusBarHeight: number = 0;
@@ -245,6 +523,7 @@ export struct ProfilePage {
     await this.getStatusBarHeight();
     this.listenOrientationChange();
     this.restoreCachedProfile(); // ⭐ 冷启动先显示缓存资料
+    this.restoreCachedStats();   // ⭐ 统计条先显示上次的值，避免 `--` 闪一下
     this.onLoginStateChanged(); // 初始化登录状态（后台刷新）
   }
 
@@ -847,101 +1126,76 @@ export struct ProfilePage {
     }
   }
 
-  private showQualityPicker(): void {
-    const primaryColor = this.isDarkMode ? '#FFFFFF' : '#000000';
-    const cancelColor = this.isDarkMode ? '#FFFFFF' : '#000000';
-    const backgroundColor = this.isDarkMode ? 'rgba(44, 44, 44, 0.95)' : 'rgba(255, 255, 255, 0.95)';
-
-    const buttons: Array<ActionButton> = [];
-
-    for (const item of QUALITY_LIST) {
-      buttons.push({
-        value: item.label,
-        fontColor: primaryColor,
-        action: () => {
-          this.saveDefaultQn(item.qn);
-        }
-      });
+  /**
+   * 统一的沉浸光感选项菜单（画质 / 推荐源 / 弹幕数据源共用）。
+   *
+   * 通道 = `UIContext.getPromptAction().openMenu(内容节点, 锚点, 选项)`：
+   *  - **全局** `promptAction` 模块没有 openMenu（编译期报不存在），只有 UIContext 上的 PromptAction 有；
+   *  - 材质 = `MaterialUtil.attachMenuMaterial`（THICK + 按压光，能力探测通过才补挂，
+   *    老机写死 systemMaterial 会打挂整棵子树）。
+   *
+   * ⚠️ 锚点用调用方传入的节点 id：`openMenu` 靠它定位弹层，节点必须**常驻**（不能 if 挂载）。
+   */
+  private openImmersiveMenu(anchorId: string, content: WrappedBuilder<[]>, label: string): void {
+    try {
+      const uiCtx: UIContext = this.getUIContext();
+      const node: ComponentContent<Object> = new ComponentContent<Object>(uiCtx, content);
+      const opts: MenuOptions = {
+        // ⛔ mask 必须 false：菜单蒙层会压在材质层之上，玻璃就不透了
+        mask: false,
+        backgroundBlurStyle: BlurStyle.COMPONENT_THICK,
+        // ⭐ 固定**右侧**弹出：锚点是整行（全宽），默认 placement 会让菜单贴行的左边缘出现，
+        //   观感上像"从左边飘出来"。改 BottomRight = 菜单右边缘对齐锚点右边缘 ⇒ 稳定贴右侧。
+        //   ⚠️ 不要改成"按点击位置 x 动态算 offset"：MenuOptions 文档写明，
+        //   一旦系统为避免出屏而调整了主方向，offset 会**整体失效**，行为反而不可预期。
+        placement: Placement.BottomRight
+      };
+      uiCtx.getPromptAction()
+        .openMenu(node, { id: anchorId }, MaterialUtil.attachMenuMaterial(opts))
+        .catch((err: BusinessError): void => {
+          logError(`[ProfilePage] ${label}菜单打开失败: ${err.code} ${err.message}`);
+        });
+    } catch (err) {
+      logError(`[ProfilePage] ${label}菜单不可用: ${err}`);
     }
+  }
 
-    buttons.push({
-      value: '取消',
-      fontColor: cancelColor,
-      action: () => {}
-    });
-
-    AlertDialog.show({
-      title: '选择默认画质',
-      message: '进入视频全屏后可以单独切换画质',
-      backgroundColor: backgroundColor,
-      buttons: buttons
-    });
+  private showQualityPicker(): void {
+    this.openImmersiveMenu('menu_anchor_quality', wrapBuilder(profQualityMenuContent), '画质');
   }
 
   private showRecommendApiPicker(): void {
-    const primaryColor = this.isDarkMode ? '#FFFFFF' : '#000000';
-    const cancelColor = this.isDarkMode ? '#FFFFFF' : '#000000';
-    const backgroundColor = this.isDarkMode ? 'rgba(44, 44, 44, 0.95)' : 'rgba(255, 255, 255, 0.95)';
-
-    AlertDialog.show({
-      title: '选择推荐API源',
-      message: 'Web API: 更稳定，推荐质量较高\nApp API: 更新更快，内容更丰富',
-      backgroundColor: backgroundColor,
-      buttons: [
-        {
-          value: 'Web API',
-          fontColor: primaryColor,
-          action: () => {
-            this.saveRecommendApiSource('Web');
-          }
-        },
-        {
-          value: 'App API',
-          fontColor: primaryColor,
-          action: () => {
-            this.saveRecommendApiSource('App');
-          }
-        },
-        {
-          value: '取消',
-          fontColor: cancelColor,
-          action: () => {}
-        }
-      ]
-    });
+    this.openImmersiveMenu('menu_anchor_recommend', wrapBuilder(profRecommendMenuContent), '推荐源');
   }
 
   private showDanmakuApiPicker(): void {
-    const primaryColor = this.isDarkMode ? '#FFFFFF' : '#000000';
-    const cancelColor = this.isDarkMode ? '#FFFFFF' : '#000000';
-    const backgroundColor = this.isDarkMode ? 'rgba(44, 44, 44, 0.95)' : 'rgba(255, 255, 255, 0.95)';
+    this.openImmersiveMenu('menu_anchor_danmaku', wrapBuilder(profDanmakuMenuContent), '弹幕数据源');
+  }
 
-    AlertDialog.show({
-      title: '选择弹幕数据源',
-      message: 'XML (轻量): 弹幕量较少，加载快，适合看视频不关注弹幕\ngRPC Protobuf (全量): 弹幕数据与官方一致，更完整，适合弹幕爱好者',
-      backgroundColor: backgroundColor,
-      buttons: [
-        {
-          value: 'XML (轻量)',
-          fontColor: primaryColor,
-          action: () => {
-            this.saveDanmakuApiSource('xml');
-          }
-        },
-        {
-          value: 'gRPC Protobuf (全量)',
-          fontColor: primaryColor,
-          action: () => {
-            this.saveDanmakuApiSource('grpc');
-          }
-        },
-        {
-          value: '取消',
-          fontColor: cancelColor,
-          action: () => {}
-        }
-      ]
-    });
+  /**
+   * 接收全局菜单里用户选中的项（全局 @Builder 拿不到 struct 的 this，只能走 AppStorage 回传）。
+   * payload 形如 `quality|80#3` —— `#` 后是自增序号，保证重复选同一项也能重新触发保存。
+   */
+  private onProfPickerResult(): void {
+    const raw: string = AppStorage.get<string>('profPickerResult') ?? '';
+    const hash: number = raw.lastIndexOf('#');
+    if (hash < 0) {
+      return;
+    }
+    const payload: string = raw.substring(0, hash);
+    const sep: number = payload.indexOf('|');
+    if (sep < 0) {
+      return;
+    }
+    const kind: string = payload.substring(0, sep);
+    const value: string = payload.substring(sep + 1);
+    if (kind === 'quality') {
+      this.saveDefaultQn(Number(value));
+    } else if (kind === 'recommend') {
+      this.saveRecommendApiSource(value);
+    } else if (kind === 'danmaku') {
+      this.saveDanmakuApiSource(value);
+    }
   }
 
   private async saveDanmakuApiSource(source: string): Promise<void> {
@@ -1278,6 +1532,85 @@ export struct ProfilePage {
     })
   }
 
+  /**
+   * 分组卡片内的一行 Toggle（无独立背景，与相邻行共用同一张圆角矩形）
+   * isLast=true 时不画分隔线；desc 非空时行高 66vp（与 SettingItemWithToggle 一致）
+   */
+  @Builder
+  ToggleRowInCard(icon: ResourceStr, title: string, isOn: boolean, onChange: (isOn: boolean) => void, isLast: boolean = false, desc: string = '') {
+    Stack() {
+      // 按压高亮层（通过 padding 缩进，比卡片小一圈）
+      Row() {
+        Row()
+          .width('100%')
+          .height('100%')
+          .borderRadius(17)
+          .backgroundColor(this.pressedHighlightId === title ? 'rgba(124,124,124,0.4)' : 'transparent')
+          .animation({ duration: 250, curve: Curve.Friction })
+          .clickEffect({ level: 2, scale: 0.93 })
+      }
+      .width('100%')
+      .height('100%')
+
+      // 内容层
+      Row() {
+        Image(icon)
+          .width(24).height(24)
+          .fillColor(this.isDarkMode ? '#E5E5E5' : '#000000')
+          .margin({ right: 14 })
+        Column() {
+          Text(title)
+            .fontSize(16)
+            .fontColor(this.isDarkMode ? '#E5E5E5' : '#000000')
+            .fontWeight(FontWeight.Medium)
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .width('100%')
+          if (desc.length > 0) {
+            Text(desc)
+              .fontSize(12)
+              .fontColor(this.isDarkMode ? '#999999' : '#000000')
+              .opacity(this.isDarkMode ? 1 : 0.6)
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .margin({ top: 2 })
+              .width('100%')
+          }
+        }
+        .alignItems(HorizontalAlign.Start)
+        .layoutWeight(1)
+        Blank()
+        Toggle({ type: ToggleType.Switch, isOn: isOn })
+          .selectedColor(this.customThemeColor)
+          .switchPointColor(Color.White)
+          .margin({ right: 0 })
+          .onChange((value: boolean) => { onChange(value); })
+      }
+      .width('100%')
+      .height('100%')
+      .padding({ left: 18, right: 18 })
+      .clickEffect({ level: 2, scale: 0.93 })
+    }
+    .width('100%')
+    .height(desc.length > 0 ? 66 : 56)
+    .padding({ left: 6, right: 6, top: 6, bottom: 6 })
+    .onTouch((e: TouchEvent) => {
+      if (e.type === TouchType.Down) {
+        this.pressedHighlightId = title;
+      } else if (e.type === TouchType.Up || e.type === TouchType.Cancel) {
+        this.pressedHighlightId = '';
+      }
+    })
+
+    if (!isLast) {
+      Divider()
+        .height(1)
+        .width('100%')
+        .color(this.isDarkMode ? '#3C3C3E' : '#E0E0E0')
+        .margin({ top: 2, bottom: 2 })
+    }
+  }
+
   @Builder
   SettingItem(icon: ResourceStr, title: string, onClick: () => void) {
     Stack() {
@@ -1388,6 +1721,69 @@ export struct ProfilePage {
     .onClick(() => { onClick(); })
   }
 
+  /** 分组卡片内的一行 Picker（无独立背景，与相邻行共用同一张圆角矩形）
+   *  isLast=true 时不画分隔线；anchorId 非空时给该行挂一个常驻 id——
+   *  openMenu 的弹层要靠它定位锚点，所以锚点节点**必须常驻**（不能 if 挂载）。 */
+  @Builder
+  PickerRowInCard(icon: ResourceStr, title: string, onClick: () => void, isLast: boolean = false, anchorId: string = '') {
+    Stack() {
+      // 按压高亮层（通过 padding 缩进，比卡片小一圈）
+      Row() {
+        Row()
+          .width('100%')
+          .height('100%')
+          .borderRadius(17)
+          .backgroundColor(this.pressedHighlightId === title ? 'rgba(124,124,124,0.4)' : 'transparent')
+          .animation({ duration: 250, curve: Curve.Friction })
+          .clickEffect({ level: 2, scale: 0.93 })
+      }
+      .width('100%')
+      .height('100%')
+
+      // 内容层
+      Row() {
+        Image(icon)
+          .width(24).height(24)
+          .fillColor(this.isDarkMode ? '#E5E5E5' : '#000000')
+          .margin({ right: 14 })
+        Text(title)
+          .fontSize(16)
+          .fontColor(this.isDarkMode ? '#E5E5E5' : '#000000')
+          .fontWeight(FontWeight.Medium)
+        Blank()
+        Circle()
+          .width(8)
+          .height(8)
+          .fill(this.isDarkMode ? '#E5E5E5' : '#000000')
+          .margin({ right: 19 })
+      }
+      .width('100%')
+      .height('100%')
+      .padding({ left: 12, right: 12 })
+      .clickEffect({ level: 2, scale: 0.93 })
+      .id(anchorId)
+    }
+    .width('100%')
+    .height(56)
+    .padding({ left: 6, right: 6, top: 6, bottom: 6 })
+    .onTouch((e: TouchEvent) => {
+      if (e.type === TouchType.Down) {
+        this.pressedHighlightId = title;
+      } else if (e.type === TouchType.Up || e.type === TouchType.Cancel) {
+        this.pressedHighlightId = '';
+      }
+    })
+    .onClick(() => { onClick(); })
+
+    if (!isLast) {
+      Divider()
+        .height(1)
+        .width('100%')
+        .color(this.isDarkMode ? '#3C3C3E' : '#E0E0E0')
+        .margin({ top: 2, bottom: 2 })
+    }
+  }
+
   @Builder
   SectionHeader(title: string) {
     Text(title)
@@ -1398,6 +1794,67 @@ export struct ProfilePage {
       .margin({ left: 24, bottom: 16 })
   }
 
+  /**
+   * 统计条单格：数字在上、标签在下。
+   *
+   * ⚠️ 传的是**数据种类**而不是求值后的字符串：`@Builder` 按值传 `value: string` 不建立
+   *    状态刷新依赖，首帧求值成快照后就不再变（历史坑：UpSpacePage 粉丝数一直显示 0，
+   *    见提交 5feffe7）。必须让 `statText()` 在渲染期直接读 @State。
+   */
+  @Builder
+  statCell(kind: string, label: string) {
+    Column() {
+      Text(this.statText(kind))
+        .fontSize(15)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(this.isDarkMode ? '#F2F5F9' : '#141A21')
+        .maxLines(1)
+      Text(label)
+        .fontSize(10)
+        .fontColor(this.isDarkMode ? '#9AA3AD' : '#4A525C')
+        .margin({ top: 2 })
+        .maxLines(1)
+    }
+    .layoutWeight(1)
+    .justifyContent(FlexAlign.Center)
+    .alignItems(HorizontalAlign.Center)
+    .padding({ top: 2, bottom: 2 })
+    .borderRadius(10)
+    .clickEffect({ level: 1, scale: 0.92 })
+    .onClick(() => {
+      if (kind === 'following') {
+        this.goToRelation('following');
+      } else if (kind === 'follower') {
+        this.goToRelation('fans');
+      } else {
+        this.goToFavorites();
+      }
+    })
+  }
+
+  /** 头像卡下半部的统计条：关注 / 粉丝 / 收藏（顶部有分界线） */
+  @Builder
+  statBar() {
+    Column() {
+      // 分界线：两端与「头像左边缘 / 退出按钮右边缘」对齐。
+      // ⚠️ 外层 Column 已有左右 12 的 padding，这里**不能再加 margin**，
+      //    否则线会比头像和退出按钮各内缩一段（曾写成 margin 8 → 左右各缩进 20）。
+      Divider()
+        .strokeWidth(0.5)
+        .color(this.isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.08)')
+
+      Row() {
+        this.statCell('following', '关注')
+        this.statCell('follower', '粉丝')
+        this.statCell('fav', '收藏')
+      }
+      .width('100%')
+      .padding({ top: 8, bottom: 8 })
+    }
+    .width('100%')
+    .margin({ bottom: 2 })
+  }
+
   build() {
     Stack() {
       Scroll() {
@@ -1405,6 +1862,10 @@ export struct ProfilePage {
           // ── 头像卡片 + 深色模式（左右并排）──
           Row({ space: 12 }) {
             // 头像卡片（占 2/3）— 跟随卡片样式透明选项
+            //   ⚠️ 卡片不再整体可点：下半部统计条每格都有自己的 onClick，
+            //      而 ArkTS 的 ClickEvent 没有 stopPropagation（见 OfflineCachePage/VideoPlayerPage 的同类注释），
+            //      整卡 onClick 会让"点收藏"同时跳进个人空间。
+            //      ⇒ 只把上半部（头像+名称）作为进入个人空间的点击区，退出按钮与统计条都是**兄弟节点**。
             Stack() {
               Row() {
                 Row()
@@ -1418,79 +1879,146 @@ export struct ProfilePage {
                 .width('100%')
                 .height('100%')
 
-              Row() {
-                // 左侧占位：与右侧退出按钮等宽，让中间的头像+名称真正居中
-                // （退出按钮只在登录时出现，未登录时不占位，内容自然居中）
-                if (this.isLoggedIn) {
-                  Row().width(30).height(30)
-                }
-
+              Column() {
+                // ── 上半区：头像 + 名称/等级/大会员/UID/硬币（左对齐；整行点击进个人空间）──
+                //   「进入个人空间」文字已去掉：入口由整行点击承担，第二行改显示 UID · 硬币。
                 Row() {
-                  if (this.isLoggedIn && this.userAvatarUrl) {
-                    Image(this.userAvatarUrl)
-                      .width(56)
-                      .height(56)
-                      .borderRadius(28)
-                      .objectFit(ImageFit.Cover)
-                  } else {
-                    Circle({ width: 56, height: 56 })
-                      .fill(this.isLoggedIn ? this.customThemeColor : (this.isDarkMode ? '#333333' : '#E0E0E0'))
-                  }
-                  Column() {
-                    // 名称过长时单行省略，避免顶到右侧退出按钮
-                    Text(this.userDisplayName)
-                      .fontSize(16)
-                      .fontWeight(FontWeight.Medium)
-                      .fontColor($r('app.color.color_primary_text'))
-                      .maxLines(1)
-                      .textOverflow({ overflow: TextOverflow.Ellipsis })
-                      .constraintSize({ maxWidth: 132 })
-                    if (this.isLoggedIn) {
-                      Text('进入个人空间')
-                        .fontSize(12)
-                        .fontColor(this.customThemeColor)
-                        .margin({ top: 4 })
-                        .fontWeight(FontWeight.Medium)
+                  Row() {
+                    if (this.isLoggedIn && this.userAvatarUrl) {
+                      Image(this.userAvatarUrl)
+                        .width(56)
+                        .height(56)
+                        .borderRadius(28)
+                        .objectFit(ImageFit.Cover)
                     } else {
-                      Text('点击登录')
-                        .fontSize(12)
-                        .fontColor(this.customThemeColor)
-                        .margin({ top: 4 })
-                        .fontWeight(FontWeight.Medium)
+                      Circle({ width: 56, height: 56 })
+                        .fill(this.isLoggedIn ? this.customThemeColor : (this.isDarkMode ? '#333333' : '#E0E0E0'))
                     }
+                    Column() {
+                      // ⭐ 第一行：名称 + 等级徽章 + 大会员标
+                      Row() {
+                        // 名称过长时单行省略。⚠️ 不能加 layoutWeight：那会把剩余宽度全占掉，
+                        // 徽章被顶到卡片最右端（与名称隔开一大段空白）。
+                        Text(this.userDisplayName)
+                          .fontSize(16)
+                          .fontWeight(FontWeight.Medium)
+                          .fontColor($r('app.color.color_primary_text'))
+                          .maxLines(1)
+                          .textOverflow({ overflow: TextOverflow.Ellipsis })
+                          .constraintSize({ maxWidth: 110 })
+                          .flexShrink(1)
+                        // 等级徽章（仅登录且等级已取到时显示）
+                        if (this.isLoggedIn && this.userLevel > 0) {
+                          Text(`LV${this.userLevel}`)
+                            .fontSize(9)
+                            .fontWeight(FontWeight.Medium)
+                            .fontColor(this.isDarkMode ? '#C8CDD4' : '#3D4650')
+                            .padding({ left: 4, right: 4, top: 1, bottom: 1 })
+                            .borderRadius(4)
+                            .backgroundColor(this.isDarkMode ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.10)')
+                            .margin({ left: 5 })
+                            .flexShrink(0)
+                            .maxLines(1)
+                        }
+                        // 大会员标（金色，随主题深浅保持可读）
+                        if (this.isLoggedIn && this.vipStatus === 1) {
+                          Text(this.vipType === 2 ? '年度大会员' : '大会员')
+                            .fontSize(9)
+                            .fontWeight(FontWeight.Medium)
+                            .fontColor(this.isDarkMode ? '#F0C46A' : '#6B4408')
+                            .padding({ left: 5, right: 5, top: 1, bottom: 1 })
+                            .borderRadius(4)
+                            .backgroundColor(this.isDarkMode ? 'rgba(240,196,106,0.20)' : 'rgba(214,158,58,0.28)')
+                            .margin({ left: 4 })
+                            .flexShrink(0)
+                            .maxLines(1)
+                        }
+                      }
+                      .width('100%')
+                      .alignItems(VerticalAlign.Center)
+                      .justifyContent(FlexAlign.Start)
+
+                      // ⭐ 第二行：UID · 硬币（替代原「进入个人空间」，入口交给整行点击）
+                      if (this.isLoggedIn) {
+                        Text(this.userCoins >= 0
+                          ? `UID ${this.userMid} · 硬币 ${fmtCoin(this.userCoins)}`
+                          : `UID ${this.userMid}`)
+                          .fontSize(11)
+                          .fontColor(this.isDarkMode ? '#9AA3AD' : '#4A525C')
+                          .margin({ top: 4 })
+                          .maxLines(1)
+                          .textOverflow({ overflow: TextOverflow.Ellipsis })
+                      } else {
+                        Text('点击登录')
+                          .fontSize(12)
+                          .fontColor(this.customThemeColor)
+                          .margin({ top: 4 })
+                          .fontWeight(FontWeight.Medium)
+                      }
+                    }
+                    .margin({ left: 12 })
+                    .layoutWeight(1)
+                    .alignItems(HorizontalAlign.Start)
                   }
-                  .margin({ left: 12 })
-                  .alignItems(HorizontalAlign.Start)
-                  .constraintSize({ maxWidth: 132 })
+                  .layoutWeight(1)
+                  .justifyContent(FlexAlign.Start)
+                  .alignItems(VerticalAlign.Center)
+                  .onClick(() => {
+                    if (this.isLoggedIn) {
+                      this.getUIContext().getRouter().pushUrl({
+                        url: 'pages/UpSpacePage',
+                        params: {
+                          mid: this.userMid,
+                          upName: this.userDisplayName,
+                          upFace: this.userAvatarUrl
+                        }
+                      }).catch((err: Error) => {
+                        logWarn(`[ProfilePage] 进入个人空间失败: ${err}`);
+                      });
+                    } else {
+                      this.goToLogin();
+                    }
+                  })
+
+                  // ⭐ 退出登录：与头像同一排，靠右（兄弟节点，不会被上面的进入空间点击吃掉）
+                  // 深浅色互为反色（深色白底黑图标 / 浅色黑底白图标），与「欢迎加入」卡片同一套规则
+                  if (this.isLoggedIn) {
+                    Stack() {
+                      Circle({ width: 30, height: 30 })
+                        .fill(this.isDarkMode ? '#FFFFFF' : '#000000')
+                      Image(this.isDarkMode
+                        ? $r('app.media.trash_fituichu')
+                        : $r('app.media.trash_fituichu_white'))
+                        .width(15)
+                        .height(15)
+                    }
+                    .width(30)
+                    .height(30)
+                    .clickEffect({ level: 2, scale: 0.88 })
+                    .onClick(() => { this.showLogoutConfirm(); })
+                  }
                 }
                 .layoutWeight(1)
-                .justifyContent(FlexAlign.Center)
+                .width('100%')
                 .alignItems(VerticalAlign.Center)
-
-                // ⭐ 退出登录：与头像同一排，靠右
-                // 深浅色互为反色（深色白底黑图标 / 浅色黑底白图标），与「欢迎加入」卡片同一套规则
-                if (this.isLoggedIn) {
-                  Stack() {
-                    Circle({ width: 30, height: 30 })
-                      .fill(this.isDarkMode ? '#FFFFFF' : '#000000')
-                    Image(this.isDarkMode
-                      ? $r('app.media.trash_fituichu')
-                      : $r('app.media.trash_fituichu_white'))
-                      .width(15)
-                      .height(15)
+                .justifyContent(FlexAlign.Start)
+                .clickEffect({ level: 2, scale: 0.96 })
+                .onTouch((e: TouchEvent) => {
+                  if (e.type === TouchType.Down) {
+                    this.pressedHighlightId = 'avatar_card';
+                  } else if (e.type === TouchType.Up || e.type === TouchType.Cancel) {
+                    this.pressedHighlightId = '';
                   }
-                  .width(30)
-                  .height(30)
-                  .clickEffect({ level: 2, scale: 0.88 })
-                  .onClick(() => { this.showLogoutConfirm(); })
+                })
+
+                // ── 下半区：统计条（登录后才显示；每格独立可点）──
+                if (this.isLoggedIn) {
+                  this.statBar()
                 }
               }
-              .alignItems(VerticalAlign.Center)
-              .justifyContent(FlexAlign.Center)
-              .padding({ left: 12, right: 12 })
               .width('100%')
               .height('100%')
-              .clickEffect({ level: 2, scale: 0.93 })
+              .padding({ left: 12, right: 12, top: 10, bottom: 6 })
             }
             .layoutWeight(2)
             .height('100%')
@@ -1498,29 +2026,6 @@ export struct ProfilePage {
             .borderRadius(24)
             .padding({ left: 6, right: 6, top: 6, bottom: 6 })
             .shadow({ radius: 16, color: '#1A000000', offsetY: 4 })
-            .onTouch((e: TouchEvent) => {
-              if (e.type === TouchType.Down) {
-                this.pressedHighlightId = 'avatar_card';
-              } else if (e.type === TouchType.Up || e.type === TouchType.Cancel) {
-                this.pressedHighlightId = '';
-              }
-            })
-            .onClick(() => {
-              if (this.isLoggedIn) {
-                this.getUIContext().getRouter().pushUrl({
-                  url: 'pages/UpSpacePage',
-                  params: {
-                    mid: this.userMid,
-                    upName: this.userDisplayName,
-                    upFace: this.userAvatarUrl
-                  }
-                }).catch((err: Error) => {
-                  logWarn(`[ProfilePage] 进入个人空间失败: ${err}`);
-                });
-              } else {
-                this.goToLogin();
-              }
-            })
 
             // 深色模式（占 1/3）
             Stack() {
@@ -1983,9 +2488,17 @@ export struct ProfilePage {
 
           // ── 播放与推荐 ──
           this.SectionHeader('播放与推荐')
-          this.SettingItemWithPicker($r('app.media.ic_settings_quality'), '画质', () => { this.showQualityPicker(); }, 8)
-          this.SettingItemWithPicker($r('app.media.ic_settings_quality'), '推荐源', () => { this.showRecommendApiPicker(); }, 8)
-          this.SettingItemWithPicker($r('app.media.ic_settings_quality'), '弹幕数据源', () => { this.showDanmakuApiPicker(); }, 8)
+          // 画质 / 推荐源 / 弹幕数据源 三项合并为同一张圆角矩形卡片（行间分隔线）
+          Column() {
+            this.PickerRowInCard($r('app.media.ic_settings_quality'), '画质', () => { this.showQualityPicker(); }, false, 'menu_anchor_quality')
+            this.PickerRowInCard($r('app.media.ic_settings_quality'), '推荐源', () => { this.showRecommendApiPicker(); }, false, 'menu_anchor_recommend')
+            this.PickerRowInCard($r('app.media.ic_settings_quality'), '弹幕数据源', () => { this.showDanmakuApiPicker(); }, true, 'menu_anchor_danmaku')
+          }
+          .width('100%')
+          .backgroundColor(this.getCardItemBg())
+          .borderRadius(20)
+          .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
+          .margin({ bottom: 8 })
           // ⭐ 回桌面自动画中画开关（播放页按此 key 武装/解除自动小窗）
           this.SettingItemWithToggle($r('app.media.ic_settings_quality'), '自动小窗', this.autoPip, async (value: boolean) => {
             this.autoPip = value;
@@ -2605,7 +3118,7 @@ export struct ProfilePage {
 
           // ── 功能开关 ──
           this.SectionHeader('功能开关')
-          this.SettingItemWithToggle($r('app.media.ic_public_search_filled'), '搜索发现', this.showSearchDiscovery, (value: boolean) => { AppStorage.set('showSearchDiscovery', value); }, 8)
+          // 「搜索发现」已移出本页：开关在搜索页自己的编辑面板里（SearchPage 搜索历史编辑面板）
           this.SettingItemWithToggle($r('app.media.ic_public_devices_phone_filled'), '直板机布局', this.phoneLayoutToggle, (value: boolean) => {
             // 直板机布局需要在播放页/首页重新加载时生效 → 保存后重启
             this.showPhoneLayoutRestartPrompt(value);
@@ -2626,60 +3139,77 @@ export struct ProfilePage {
               await p.flush();
             } catch (_) {}
           }, 8)
-          // ⭐「显示动态页」— 关闭后底部 Tab 栏与页面一起移除（重启/切换深浅色后仍保持）
-          this.SettingItemWithToggle($r('app.media.discover_fill'), '显示动态页', this.showDynamicsTab, async (value: boolean) => {
-            AppStorage.set('showDynamicsTab', value);
-            this.getUIContext().getPromptAction().showToast({
-              message: value ? '已显示动态页' : '已隐藏动态页（重启应用后底栏不再显示）',
-              duration: 2000
-            });
-            try {
-              const p = await preferences.getPreferences(this.getUIContext().getHostContext() as common.UIAbilityContext, 'my_app_settings');
-              await p.put('showDynamicsTab', value);
-              await p.flush();
-            } catch (_) {}
-          }, 8)
-          // ⭐「显示消息页」— 关闭后底部 Tab 栏与页面一起移除（重启/切换深浅色后仍保持）
-          this.SettingItemWithToggle($r('app.media.message'), '显示消息页', this.showWhisperTab, async (value: boolean) => {
-            AppStorage.set('showWhisperTab', value);
-            this.getUIContext().getPromptAction().showToast({
-              message: value ? '已显示消息页' : '已隐藏消息页（重启应用后底栏不再显示）',
-              duration: 2000
-            });
-            try {
-              const p = await preferences.getPreferences(this.getUIContext().getHostContext() as common.UIAbilityContext, 'my_app_settings');
-              await p.put('showWhisperTab', value);
-              await p.flush();
-            } catch (_) {}
-          }, 8)
-          // ⚠️「动态页点击切换分类」（默认打开）—— 打开 = 只能点顶部胶囊/分类按钮切分类；关闭 = 恢复左右横滑切分类
-          this.SettingItemWithToggle($r('app.media.discover_fill'), '动态页点击切换分类', this.dynFilterTapOnly, async (value: boolean) => {
-            AppStorage.set('dynFilterTapOnly', value);
-            // 明确告诉用户当前效果（关闭 = 恢复横滑）
-            this.getUIContext().getPromptAction().showToast({
-              message: value ? '已开启：只能点击顶部按钮切换分类' : '已关闭：动态页可左右横滑切换分类',
-              duration: 2000
-            });
-            try {
-              const p = await preferences.getPreferences(this.getUIContext().getHostContext() as common.UIAbilityContext, 'my_app_settings');
-              await p.put('dynFilterTapOnly', value);
-              await p.flush();
-            } catch (_) {}
-          }, 8, '关闭后：动态页可左右横滑切换分类')
-          // ⚠️「首页点击切换分类」（默认关闭）—— 关闭 = 允许左右横滑切频道；打开 = 只能点顶部胶囊/分类按钮切频道
-          this.SettingItemWithToggle($r('app.media.house'), '首页点击切换分类', this.homeFilterTapOnly, async (value: boolean) => {
-            AppStorage.set('homeFilterTapOnly', value);
-            // 明确告诉用户当前效果（关闭 = 恢复横滑）
-            this.getUIContext().getPromptAction().showToast({
-              message: value ? '已开启：只能点击顶部按钮切换分类' : '已关闭：首页可左右横滑切换分类',
-              duration: 2000
-            });
-            try {
-              const p = await preferences.getPreferences(this.getUIContext().getHostContext() as common.UIAbilityContext, 'my_app_settings');
-              await p.put('homeFilterTapOnly', value);
-              await p.flush();
-            } catch (_) {}
-          }, 8, '关闭后：首页可左右横滑切换分类')
+          // 显示动态页 / 显示消息页 合并为同一张圆角矩形卡片（行间分隔线）
+          Column() {
+            // ⭐「显示动态页」— 关闭后底部 Tab 栏与页面一起移除（重启/切换深浅色后仍保持）
+            this.ToggleRowInCard($r('app.media.discover_fill'), '显示动态页', this.showDynamicsTab, async (value: boolean) => {
+              AppStorage.set('showDynamicsTab', value);
+              this.getUIContext().getPromptAction().showToast({
+                message: value ? '已显示动态页' : '已隐藏动态页（重启应用后底栏不再显示）',
+                duration: 2000
+              });
+              try {
+                const p = await preferences.getPreferences(this.getUIContext().getHostContext() as common.UIAbilityContext, 'my_app_settings');
+                await p.put('showDynamicsTab', value);
+                await p.flush();
+              } catch (_) {}
+            })
+            // ⭐「显示消息页」— 关闭后底部 Tab 栏与页面一起移除（重启/切换深浅色后仍保持）
+            this.ToggleRowInCard($r('app.media.message'), '显示消息页', this.showWhisperTab, async (value: boolean) => {
+              AppStorage.set('showWhisperTab', value);
+              this.getUIContext().getPromptAction().showToast({
+                message: value ? '已显示消息页' : '已隐藏消息页（重启应用后底栏不再显示）',
+                duration: 2000
+              });
+              try {
+                const p = await preferences.getPreferences(this.getUIContext().getHostContext() as common.UIAbilityContext, 'my_app_settings');
+                await p.put('showWhisperTab', value);
+                await p.flush();
+              } catch (_) {}
+            }, true)
+          }
+          .width('100%')
+          .backgroundColor(this.getCardItemBg())
+          .borderRadius(20)
+          .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
+          .margin({ bottom: 8 })
+
+          // 动态页点击切换分类 / 首页点击切换分类 合并为同一张圆角矩形卡片（行间分隔线）
+          Column() {
+            // ⚠️「动态页点击切换分类」（默认打开）—— 打开 = 只能点顶部胶囊/分类按钮切分类；关闭 = 恢复左右横滑切分类
+            this.ToggleRowInCard($r('app.media.discover_fill'), '动态页点击切换分类', this.dynFilterTapOnly, async (value: boolean) => {
+              AppStorage.set('dynFilterTapOnly', value);
+              // 明确告诉用户当前效果（关闭 = 恢复横滑）
+              this.getUIContext().getPromptAction().showToast({
+                message: value ? '已开启：只能点击顶部按钮切换分类' : '已关闭：动态页可左右横滑切换分类',
+                duration: 2000
+              });
+              try {
+                const p = await preferences.getPreferences(this.getUIContext().getHostContext() as common.UIAbilityContext, 'my_app_settings');
+                await p.put('dynFilterTapOnly', value);
+                await p.flush();
+              } catch (_) {}
+            }, false, '关闭后：动态页可左右横滑切换分类')
+            // ⚠️「首页点击切换分类」（默认关闭）—— 关闭 = 允许左右横滑切频道；打开 = 只能点顶部胶囊/分类按钮切频道
+            this.ToggleRowInCard($r('app.media.house'), '首页点击切换分类', this.homeFilterTapOnly, async (value: boolean) => {
+              AppStorage.set('homeFilterTapOnly', value);
+              // 明确告诉用户当前效果（关闭 = 恢复横滑）
+              this.getUIContext().getPromptAction().showToast({
+                message: value ? '已开启：只能点击顶部按钮切换分类' : '已关闭：首页可左右横滑切换分类',
+                duration: 2000
+              });
+              try {
+                const p = await preferences.getPreferences(this.getUIContext().getHostContext() as common.UIAbilityContext, 'my_app_settings');
+                await p.put('homeFilterTapOnly', value);
+                await p.flush();
+              } catch (_) {}
+            }, true, '关闭后：首页可左右横滑切换分类')
+          }
+          .width('100%')
+          .backgroundColor(this.getCardItemBg())
+          .borderRadius(20)
+          .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
+          .margin({ bottom: 8 })
           this.SettingItemWithToggle($r('app.media.hand_point_up_tap_fill_1'), '上滑评论缩小视频', this.shrinkVideoOnScroll, async (value: boolean) => {
             AppStorage.set('shrinkVideoOnScroll', value);
             try {
@@ -2820,15 +3350,23 @@ export struct ProfilePage {
               // 右列：播放与推荐 + 功能开关 + 关于
               Column() {
                 this.SectionHeader('播放与推荐')
-                this.SettingItemWithPicker($r('app.media.ic_settings_quality'), '画质', () => { this.showQualityPicker(); }, 8)
-                this.SettingItemWithPicker($r('app.media.ic_settings_quality'), '推荐源', () => { this.showRecommendApiPicker(); }, 8)
-          this.SettingItemWithPicker($r('app.media.ic_settings_quality'), '弹幕数据源', () => { this.showDanmakuApiPicker(); }, 8)
+                // 画质 / 推荐源 / 弹幕数据源 三项合并为同一张圆角矩形卡片（行间分隔线）
+                Column() {
+                  this.PickerRowInCard($r('app.media.ic_settings_quality'), '画质', () => { this.showQualityPicker(); }, false, 'menu_anchor_quality')
+                  this.PickerRowInCard($r('app.media.ic_settings_quality'), '推荐源', () => { this.showRecommendApiPicker(); }, false, 'menu_anchor_recommend')
+                  this.PickerRowInCard($r('app.media.ic_settings_quality'), '弹幕数据源', () => { this.showDanmakuApiPicker(); }, true, 'menu_anchor_danmaku')
+                }
+                .width('100%')
+                .backgroundColor(this.getCardItemBg())
+                .borderRadius(20)
+                .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
+                .margin({ bottom: 8 })
           // ⭐ 回桌面自动画中画开关（播放页按此 key 武装/解除自动小窗）
           this.SettingItemWithToggle($r('app.media.ic_settings_quality'), '自动小窗', this.autoPip, async (value: boolean) => {
             this.autoPip = value;
           }, 8, '播放中回到桌面自动以小窗继续播放')
                 this.SectionHeader('功能开关')
-                this.SettingItemWithToggle($r('app.media.ic_public_search_filled'), '搜索发现', this.showSearchDiscovery, (value: boolean) => { AppStorage.set('showSearchDiscovery', value); }, 8)
+                // 「搜索发现」已移出本页：开关在搜索页自己的编辑面板里（SearchPage 搜索历史编辑面板）
                 this.SettingItemWithToggle($r('app.media.arrow_clockwise'), '上次看到这里', this.showRefreshSeparator, async (value: boolean) => {
             AppStorage.set('showRefreshSeparator', value);
             try {
@@ -2845,60 +3383,77 @@ export struct ProfilePage {
               await p.flush();
             } catch (_) {}
           }, 8)
-          // ⭐「显示动态页」— 关闭后底部 Tab 栏与页面一起移除（重启/切换深浅色后仍保持）
-          this.SettingItemWithToggle($r('app.media.discover_fill'), '显示动态页', this.showDynamicsTab, async (value: boolean) => {
-            AppStorage.set('showDynamicsTab', value);
-            this.getUIContext().getPromptAction().showToast({
-              message: value ? '已显示动态页' : '已隐藏动态页（重启应用后底栏不再显示）',
-              duration: 2000
-            });
-            try {
-              const p = await preferences.getPreferences(this.getUIContext().getHostContext() as common.UIAbilityContext, 'my_app_settings');
-              await p.put('showDynamicsTab', value);
-              await p.flush();
-            } catch (_) {}
-          }, 8)
-          // ⭐「显示消息页」— 关闭后底部 Tab 栏与页面一起移除（重启/切换深浅色后仍保持）
-          this.SettingItemWithToggle($r('app.media.message'), '显示消息页', this.showWhisperTab, async (value: boolean) => {
-            AppStorage.set('showWhisperTab', value);
-            this.getUIContext().getPromptAction().showToast({
-              message: value ? '已显示消息页' : '已隐藏消息页（重启应用后底栏不再显示）',
-              duration: 2000
-            });
-            try {
-              const p = await preferences.getPreferences(this.getUIContext().getHostContext() as common.UIAbilityContext, 'my_app_settings');
-              await p.put('showWhisperTab', value);
-              await p.flush();
-            } catch (_) {}
-          }, 8)
-          // ⚠️「动态页点击切换分类」（默认打开）—— 打开 = 只能点顶部胶囊/分类按钮切分类；关闭 = 恢复左右横滑切分类
-          this.SettingItemWithToggle($r('app.media.discover_fill'), '动态页点击切换分类', this.dynFilterTapOnly, async (value: boolean) => {
-            AppStorage.set('dynFilterTapOnly', value);
-            // 明确告诉用户当前效果（关闭 = 恢复横滑）
-            this.getUIContext().getPromptAction().showToast({
-              message: value ? '已开启：只能点击顶部按钮切换分类' : '已关闭：动态页可左右横滑切换分类',
-              duration: 2000
-            });
-            try {
-              const p = await preferences.getPreferences(this.getUIContext().getHostContext() as common.UIAbilityContext, 'my_app_settings');
-              await p.put('dynFilterTapOnly', value);
-              await p.flush();
-            } catch (_) {}
-          }, 8, '关闭后：动态页可左右横滑切换分类')
-          // ⚠️「首页点击切换分类」（默认关闭）—— 关闭 = 允许左右横滑切频道；打开 = 只能点顶部胶囊/分类按钮切频道
-          this.SettingItemWithToggle($r('app.media.house'), '首页点击切换分类', this.homeFilterTapOnly, async (value: boolean) => {
-            AppStorage.set('homeFilterTapOnly', value);
-            // 明确告诉用户当前效果（关闭 = 恢复横滑）
-            this.getUIContext().getPromptAction().showToast({
-              message: value ? '已开启：只能点击顶部按钮切换分类' : '已关闭：首页可左右横滑切换分类',
-              duration: 2000
-            });
-            try {
-              const p = await preferences.getPreferences(this.getUIContext().getHostContext() as common.UIAbilityContext, 'my_app_settings');
-              await p.put('homeFilterTapOnly', value);
-              await p.flush();
-            } catch (_) {}
-          }, 8, '关闭后：首页可左右横滑切换分类')
+          // 显示动态页 / 显示消息页 合并为同一张圆角矩形卡片（行间分隔线）
+          Column() {
+            // ⭐「显示动态页」— 关闭后底部 Tab 栏与页面一起移除（重启/切换深浅色后仍保持）
+            this.ToggleRowInCard($r('app.media.discover_fill'), '显示动态页', this.showDynamicsTab, async (value: boolean) => {
+              AppStorage.set('showDynamicsTab', value);
+              this.getUIContext().getPromptAction().showToast({
+                message: value ? '已显示动态页' : '已隐藏动态页（重启应用后底栏不再显示）',
+                duration: 2000
+              });
+              try {
+                const p = await preferences.getPreferences(this.getUIContext().getHostContext() as common.UIAbilityContext, 'my_app_settings');
+                await p.put('showDynamicsTab', value);
+                await p.flush();
+              } catch (_) {}
+            })
+            // ⭐「显示消息页」— 关闭后底部 Tab 栏与页面一起移除（重启/切换深浅色后仍保持）
+            this.ToggleRowInCard($r('app.media.message'), '显示消息页', this.showWhisperTab, async (value: boolean) => {
+              AppStorage.set('showWhisperTab', value);
+              this.getUIContext().getPromptAction().showToast({
+                message: value ? '已显示消息页' : '已隐藏消息页（重启应用后底栏不再显示）',
+                duration: 2000
+              });
+              try {
+                const p = await preferences.getPreferences(this.getUIContext().getHostContext() as common.UIAbilityContext, 'my_app_settings');
+                await p.put('showWhisperTab', value);
+                await p.flush();
+              } catch (_) {}
+            }, true)
+          }
+          .width('100%')
+          .backgroundColor(this.getCardItemBg())
+          .borderRadius(20)
+          .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
+          .margin({ bottom: 8 })
+
+          // 动态页点击切换分类 / 首页点击切换分类 合并为同一张圆角矩形卡片（行间分隔线）
+          Column() {
+            // ⚠️「动态页点击切换分类」（默认打开）—— 打开 = 只能点顶部胶囊/分类按钮切分类；关闭 = 恢复左右横滑切分类
+            this.ToggleRowInCard($r('app.media.discover_fill'), '动态页点击切换分类', this.dynFilterTapOnly, async (value: boolean) => {
+              AppStorage.set('dynFilterTapOnly', value);
+              // 明确告诉用户当前效果（关闭 = 恢复横滑）
+              this.getUIContext().getPromptAction().showToast({
+                message: value ? '已开启：只能点击顶部按钮切换分类' : '已关闭：动态页可左右横滑切换分类',
+                duration: 2000
+              });
+              try {
+                const p = await preferences.getPreferences(this.getUIContext().getHostContext() as common.UIAbilityContext, 'my_app_settings');
+                await p.put('dynFilterTapOnly', value);
+                await p.flush();
+              } catch (_) {}
+            }, false, '关闭后：动态页可左右横滑切换分类')
+            // ⚠️「首页点击切换分类」（默认关闭）—— 关闭 = 允许左右横滑切频道；打开 = 只能点顶部胶囊/分类按钮切频道
+            this.ToggleRowInCard($r('app.media.house'), '首页点击切换分类', this.homeFilterTapOnly, async (value: boolean) => {
+              AppStorage.set('homeFilterTapOnly', value);
+              // 明确告诉用户当前效果（关闭 = 恢复横滑）
+              this.getUIContext().getPromptAction().showToast({
+                message: value ? '已开启：只能点击顶部按钮切换分类' : '已关闭：首页可左右横滑切换分类',
+                duration: 2000
+              });
+              try {
+                const p = await preferences.getPreferences(this.getUIContext().getHostContext() as common.UIAbilityContext, 'my_app_settings');
+                await p.put('homeFilterTapOnly', value);
+                await p.flush();
+              } catch (_) {}
+            }, true, '关闭后：首页可左右横滑切换分类')
+          }
+          .width('100%')
+          .backgroundColor(this.getCardItemBg())
+          .borderRadius(20)
+          .shadow({ radius: 8, color: '#0D000000', offsetY: 2 })
+          .margin({ bottom: 8 })
           this.SettingItemWithToggle($r('app.media.hand_point_up_tap_fill_1'), '上滑评论缩小视频', this.shrinkVideoOnScroll, async (value: boolean) => {
             AppStorage.set('shrinkVideoOnScroll', value);
             try {
