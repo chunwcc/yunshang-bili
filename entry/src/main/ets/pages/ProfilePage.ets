@@ -12,7 +12,8 @@ import { PersonalizationPage } from './PersonalizationPage';
 import { AppScaleService, SCALE_MODE_SYSTEM, SCALE_MODE_CUSTOM } from '../services/AppScaleService';
 import { window, ComponentContent, UIContext } from '@kit.ArkUI';
 import { CardStyleSheet } from './CardStyleSheet';
-import { getUserInfo, UserInfo } from '../api/BilibiliApi';
+import { getUserInfo, UserInfo, getUserRelationStat } from '../api/BilibiliApi';
+import { getCreatedFavFolders } from '../api/FavoritesApi';
 import { HdsMiniBarButton } from '../components/infra/HdsMiniBarButton';
 import { MaterialUtil } from '../utils/MaterialUtil';
 
@@ -66,6 +67,20 @@ const FONT_SCALE_STEPS: ScaleStep[] = [
 function labelByQn(qn: number): string {
   const item = QUALITY_LIST.find(q => q.qn === qn);
   return item ? item.label : '1080P60';
+}
+
+/** 统计条数值格式化：万/亿 缩写，未加载时返回 '--'（避免先显示 0 再跳变） */
+function fmtStatN(v: number): string {
+  if (!v || v <= 0) return '0';
+  if (v >= 100000000) return (v / 100000000).toFixed(1) + '亿';
+  if (v >= 10000) return (v / 10000).toFixed(1) + '万';
+  return v.toString();
+}
+
+/** 硬币余额格式化：money 是小数（如 104.8），整数时不带小数位 */
+function fmtCoin(v: number): string {
+  if (v < 0) return '--';
+  return Number.isInteger(v) ? v.toString() : v.toFixed(1);
 }
 
 // ────────────────────────── 画质 / 推荐源 / 弹幕数据源 的沉浸光感菜单 ──────────────────────────
@@ -253,6 +268,20 @@ export struct ProfilePage {
   @State userDisplayName: string = '未登录用户';
   @State userAvatarUrl: string = ''; // 用户头像URL
   @State userMid: number = 0;        // 当前登录用户 mid（点击头像进入个人空间）
+  // ── 等级 / 大会员 / 硬币（nav 接口自带，无额外请求）──
+  @State userLevel: number = 0;      // 0 = 未知（不显示徽章）
+  @State vipStatus: number = 0;      // 0=非大会员 1=已开通
+  @State vipType: number = 0;        // 1=月度 2=年度
+  @State userCoins: number = -1;     // -1 = 未知
+
+  // ── 统计条数据（-1 = 尚未加载，渲染成 `--`，避免先显示 0 再跳到真实值）──
+  @State statFollowing: number = -1;
+  @State statFollower: number = -1;
+  @State statFavCount: number = -1;
+  /** 统计条一次加载只发一轮请求（AboutToAppear 与登录态回调都会触发） */
+  private statsLoading: boolean = false;
+  /** 已拿到统计的 mid，用于避免重复请求 */
+  private statsLoadedMid: number = 0;
 
   /**
    * refreshHomeFlag 变化时（登录/登出后），强制更新 UI 状态。
@@ -271,9 +300,20 @@ export struct ProfilePage {
         this.userDisplayName = userInfo.uname;
         this.userAvatarUrl = userInfo.face;
         this.userMid = userInfo.mid;
+        // ⭐ nav 自带等级/大会员/硬币，无需额外请求
+        this.userLevel = userInfo.level_info?.current_level ?? 0;
+        // 大会员必须同时满足「已开通 + 未过期」：过期账号 vip.status 有时仍是 1，
+        // 只靠 status 会把过期用户显示成大会员（实测本机账号 vipDueDate=2021-04，status=0）
+        const dueDate: number = userInfo.vipDueDate ?? 0;
+        this.vipStatus = (userInfo.vip?.status === 1 && dueDate > Date.now()) ? 1 : 0;
+        this.vipType = userInfo.vip?.type ?? 0;
+        // 硬币余额 = nav 的 money（nav 没有 coins 字段）
+        this.userCoins = userInfo.money ?? -1;
         // ⭐ 缓存成功获取的资料：冷启动先显示缓存再后台刷新
         this.persistCachedProfile(userInfo.uname, userInfo.face, userInfo.mid);
-        logInfo(`[ProfilePage] 获取用户信息成功: ${userInfo.uname}`);
+        this.persistCachedBadges();
+        logInfo(`[ProfilePage] 获取用户信息成功: ${userInfo.uname}, LV${this.userLevel}, ` +
+          `大会员=${this.vipStatus === 1 ? '是' : '否'}, 硬币=${this.userCoins}`);
       } else {
         // API失败时使用备用方案：缓存优先（头像/名称立即可用），无缓存才退回 cookie DedeUserID
         let cachedName: string = '';
@@ -289,11 +329,18 @@ export struct ProfilePage {
         this.userAvatarUrl = cachedFace;
         this.userMid = match ? parseInt(match[1], 10) : 0;
       }
+      // ⭐ 拿到 mid 后拉统计条（内部按 mid 去重，重复调用无副作用）
+      this.loadUserStats(this.userMid);
     } else {
       this.userDisplayName = '未登录用户';
       this.userAvatarUrl = '';
       this.userMid = 0;
       // ⭐ 登出：清缓存，避免下次冷启动闪现旧资料
+      this.userLevel = 0;
+      this.vipStatus = 0;
+      this.vipType = 0;
+      this.userCoins = -1;
+      this.resetStats();
       this.clearCachedProfile();
     }
   }
@@ -313,7 +360,30 @@ export struct ProfilePage {
         if (face) this.userAvatarUrl = face;
         if (mid) this.userMid = mid;
       }
+      // 等级/大会员/硬币同样先读缓存，避免首屏徽章空一拍
+      const level = await this.dataPreferences.get('userLevel', 0) as number;
+      const vipStatus = await this.dataPreferences.get('vipStatus', 0) as number;
+      const vipType = await this.dataPreferences.get('vipType', 0) as number;
+      const coins = await this.dataPreferences.get('userCoins', -1) as number;
+      if (this.userLevel <= 0 && level > 0) this.userLevel = level;
+      if (this.vipStatus === 0 && vipStatus === 1) this.vipStatus = vipStatus;
+      if (this.vipType === 0 && vipType > 0) this.vipType = vipType;
+      if (this.userCoins < 0 && coins >= 0) this.userCoins = coins;
     } catch (_e) { /* 读取失败不阻断 */ }
+  }
+
+  /** ⭐ 写入等级/大会员/硬币缓存 */
+  private async persistCachedBadges(): Promise<void> {
+    if (!this.dataPreferences) return;
+    try {
+      await this.dataPreferences.put('userLevel', this.userLevel);
+      await this.dataPreferences.put('vipStatus', this.vipStatus);
+      await this.dataPreferences.put('vipType', this.vipType);
+      if (this.userCoins >= 0) {
+        await this.dataPreferences.put('userCoins', this.userCoins);
+      }
+      await this.dataPreferences.flush();
+    } catch (_e) { /* 写入失败不阻断 */ }
   }
 
   /** ⭐ 写入用户资料缓存（Preferences）：冷启动免等待网络 */
@@ -334,8 +404,113 @@ export struct ProfilePage {
       await this.dataPreferences.delete('userProfileName');
       await this.dataPreferences.delete('userProfileFace');
       await this.dataPreferences.delete('userProfileMid');
+      await this.dataPreferences.delete('userLevel');
+      await this.dataPreferences.delete('vipStatus');
+      await this.dataPreferences.delete('vipType');
+      await this.dataPreferences.delete('userCoins');
+      await this.dataPreferences.delete('statFollowing');
+      await this.dataPreferences.delete('statFollower');
+      await this.dataPreferences.delete('statFavCount');
       await this.dataPreferences.flush();
     } catch (_e) { /* 清除失败不阻断 */ }
+  }
+
+  // ──────────────────────────── 统计条：关注 / 粉丝 / 收藏 ────────────────────────────
+  //
+  // 关注 / 粉丝走 `getUserRelationStat(mid)`（一次请求拿两个数）；
+  // 收藏走 `getCreatedFavFolders`，把各收藏夹 media_count 相加（一次请求）。
+  //
+  // ⚠️ 首屏不许闪数字：数据未到时渲染 `--`（-1），不用 0 占位；
+  //    同时读 Preferences 里的上次结果先顶上，请求回来再覆盖。
+
+  /** 读上次的关系统计缓存，先显示再刷新（值不可能实时秒变，旧值肉眼无差） */
+  private async restoreCachedStats(): Promise<void> {
+    if (!this.dataPreferences) return;
+    try {
+      const following = await this.dataPreferences.get('statFollowing', -1) as number;
+      const follower = await this.dataPreferences.get('statFollower', -1) as number;
+      const favCount = await this.dataPreferences.get('statFavCount', -1) as number;
+      if (this.statFollowing < 0 && following >= 0) this.statFollowing = following;
+      if (this.statFollower < 0 && follower >= 0) this.statFollower = follower;
+      if (this.statFavCount < 0 && favCount >= 0) this.statFavCount = favCount;
+    } catch (_e) { /* 读取失败不阻断 */ }
+  }
+
+  private async persistStat(key: string, value: number): Promise<void> {
+    if (!this.dataPreferences || value < 0) return;
+    try {
+      await this.dataPreferences.put(key, value);
+      await this.dataPreferences.flush();
+    } catch (_e) { /* 写盘失败不阻断 */ }
+  }
+
+  /**
+   * 拉取统计条数据。两路请求**并行**且互不影响，任一失败都只让对应格停在旧值。
+   * 用 mid 去重：同一个用户只拉一次（切 Tab / freeze 回补都会重复触发）。
+   */
+  private async loadUserStats(mid: number): Promise<void> {
+    if (!this.isLoggedIn || mid <= 0) return;
+    if (this.statsLoading || this.statsLoadedMid === mid) return;
+    this.statsLoading = true;
+    try {
+      // ① 关注 / 粉丝
+      const relationPromise: Promise<void> = getUserRelationStat(mid).then((stat) => {
+        if (stat) {
+          this.statFollowing = stat.following ?? 0;
+          this.statFollower = stat.follower ?? 0;
+          this.persistStat('statFollowing', this.statFollowing);
+          this.persistStat('statFollower', this.statFollower);
+          this.statsLoadedMid = mid;
+        }
+      }).catch((e: Error) => {
+        logWarn(`[ProfilePage] 拉取关系统计失败: ${e}`);
+      });
+
+      // ② 收藏（各收藏夹内容数之和；先取第一页，条目多时够用且只发一次请求）
+      const favPromise: Promise<void> = getCreatedFavFolders(mid, 1, 50).then((folders) => {
+        if (folders) {
+          let total = 0;
+          for (let i = 0; i < folders.length; i++) {
+            total += folders[i].media_count || 0;
+          }
+          this.statFavCount = total;
+          this.persistStat('statFavCount', total);
+        }
+      }).catch((e: Error) => {
+        logWarn(`[ProfilePage] 拉取收藏数失败: ${e}`);
+      });
+
+      await Promise.all([relationPromise, favPromise]);
+      logInfo(`[ProfilePage] 统计条更新: 关注=${this.statFollowing}, 粉丝=${this.statFollower}, ` +
+        `收藏=${this.statFavCount}`);
+    } finally {
+      this.statsLoading = false;
+    }
+  }
+
+  /** 统计条数值（按种类在渲染期读 @State，异步数据到达即刷新） */
+  private statText(kind: string): string {
+    if (kind === 'following') return this.statFollowing < 0 ? '--' : fmtStatN(this.statFollowing);
+    if (kind === 'follower') return this.statFollower < 0 ? '--' : fmtStatN(this.statFollower);
+    return this.statFavCount < 0 ? '--' : fmtStatN(this.statFavCount);
+  }
+
+  /** 登出后清空统计条（离线数是本机的，保留；关注/粉丝/收藏属于账号） */
+  private resetStats(): void {
+    this.statFollowing = -1;
+    this.statFollower = -1;
+    this.statFavCount = -1;
+    this.statsLoadedMid = 0;
+  }
+
+  private goToRelation(type: string): void {
+    if (this.userMid <= 0) { this.goToLogin(); return; }
+    this.getUIContext().getRouter().pushUrl({
+      url: 'pages/RelationListPage',
+      params: { mid: this.userMid, type: type }
+    }).catch((err: Error) => {
+      logWarn(`[ProfilePage] 跳转关系列表失败: ${err}`);
+    });
   }
 
   @State statusBarHeight: number = 0;
@@ -348,6 +523,7 @@ export struct ProfilePage {
     await this.getStatusBarHeight();
     this.listenOrientationChange();
     this.restoreCachedProfile(); // ⭐ 冷启动先显示缓存资料
+    this.restoreCachedStats();   // ⭐ 统计条先显示上次的值，避免 `--` 闪一下
     this.onLoginStateChanged(); // 初始化登录状态（后台刷新）
   }
 
@@ -1618,6 +1794,67 @@ export struct ProfilePage {
       .margin({ left: 24, bottom: 16 })
   }
 
+  /**
+   * 统计条单格：数字在上、标签在下。
+   *
+   * ⚠️ 传的是**数据种类**而不是求值后的字符串：`@Builder` 按值传 `value: string` 不建立
+   *    状态刷新依赖，首帧求值成快照后就不再变（历史坑：UpSpacePage 粉丝数一直显示 0，
+   *    见提交 5feffe7）。必须让 `statText()` 在渲染期直接读 @State。
+   */
+  @Builder
+  statCell(kind: string, label: string) {
+    Column() {
+      Text(this.statText(kind))
+        .fontSize(15)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(this.isDarkMode ? '#F2F5F9' : '#141A21')
+        .maxLines(1)
+      Text(label)
+        .fontSize(10)
+        .fontColor(this.isDarkMode ? '#9AA3AD' : '#4A525C')
+        .margin({ top: 2 })
+        .maxLines(1)
+    }
+    .layoutWeight(1)
+    .justifyContent(FlexAlign.Center)
+    .alignItems(HorizontalAlign.Center)
+    .padding({ top: 2, bottom: 2 })
+    .borderRadius(10)
+    .clickEffect({ level: 1, scale: 0.92 })
+    .onClick(() => {
+      if (kind === 'following') {
+        this.goToRelation('following');
+      } else if (kind === 'follower') {
+        this.goToRelation('fans');
+      } else {
+        this.goToFavorites();
+      }
+    })
+  }
+
+  /** 头像卡下半部的统计条：关注 / 粉丝 / 收藏（顶部有分界线） */
+  @Builder
+  statBar() {
+    Column() {
+      // 分界线：两端与「头像左边缘 / 退出按钮右边缘」对齐。
+      // ⚠️ 外层 Column 已有左右 12 的 padding，这里**不能再加 margin**，
+      //    否则线会比头像和退出按钮各内缩一段（曾写成 margin 8 → 左右各缩进 20）。
+      Divider()
+        .strokeWidth(0.5)
+        .color(this.isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.08)')
+
+      Row() {
+        this.statCell('following', '关注')
+        this.statCell('follower', '粉丝')
+        this.statCell('fav', '收藏')
+      }
+      .width('100%')
+      .padding({ top: 8, bottom: 8 })
+    }
+    .width('100%')
+    .margin({ bottom: 2 })
+  }
+
   build() {
     Stack() {
       Scroll() {
@@ -1625,6 +1862,10 @@ export struct ProfilePage {
           // ── 头像卡片 + 深色模式（左右并排）──
           Row({ space: 12 }) {
             // 头像卡片（占 2/3）— 跟随卡片样式透明选项
+            //   ⚠️ 卡片不再整体可点：下半部统计条每格都有自己的 onClick，
+            //      而 ArkTS 的 ClickEvent 没有 stopPropagation（见 OfflineCachePage/VideoPlayerPage 的同类注释），
+            //      整卡 onClick 会让"点收藏"同时跳进个人空间。
+            //      ⇒ 只把上半部（头像+名称）作为进入个人空间的点击区，退出按钮与统计条都是**兄弟节点**。
             Stack() {
               Row() {
                 Row()
@@ -1638,79 +1879,146 @@ export struct ProfilePage {
                 .width('100%')
                 .height('100%')
 
-              Row() {
-                // 左侧占位：与右侧退出按钮等宽，让中间的头像+名称真正居中
-                // （退出按钮只在登录时出现，未登录时不占位，内容自然居中）
-                if (this.isLoggedIn) {
-                  Row().width(30).height(30)
-                }
-
+              Column() {
+                // ── 上半区：头像 + 名称/等级/大会员/UID/硬币（左对齐；整行点击进个人空间）──
+                //   「进入个人空间」文字已去掉：入口由整行点击承担，第二行改显示 UID · 硬币。
                 Row() {
-                  if (this.isLoggedIn && this.userAvatarUrl) {
-                    Image(this.userAvatarUrl)
-                      .width(56)
-                      .height(56)
-                      .borderRadius(28)
-                      .objectFit(ImageFit.Cover)
-                  } else {
-                    Circle({ width: 56, height: 56 })
-                      .fill(this.isLoggedIn ? this.customThemeColor : (this.isDarkMode ? '#333333' : '#E0E0E0'))
-                  }
-                  Column() {
-                    // 名称过长时单行省略，避免顶到右侧退出按钮
-                    Text(this.userDisplayName)
-                      .fontSize(16)
-                      .fontWeight(FontWeight.Medium)
-                      .fontColor($r('app.color.color_primary_text'))
-                      .maxLines(1)
-                      .textOverflow({ overflow: TextOverflow.Ellipsis })
-                      .constraintSize({ maxWidth: 132 })
-                    if (this.isLoggedIn) {
-                      Text('进入个人空间')
-                        .fontSize(12)
-                        .fontColor(this.customThemeColor)
-                        .margin({ top: 4 })
-                        .fontWeight(FontWeight.Medium)
+                  Row() {
+                    if (this.isLoggedIn && this.userAvatarUrl) {
+                      Image(this.userAvatarUrl)
+                        .width(56)
+                        .height(56)
+                        .borderRadius(28)
+                        .objectFit(ImageFit.Cover)
                     } else {
-                      Text('点击登录')
-                        .fontSize(12)
-                        .fontColor(this.customThemeColor)
-                        .margin({ top: 4 })
-                        .fontWeight(FontWeight.Medium)
+                      Circle({ width: 56, height: 56 })
+                        .fill(this.isLoggedIn ? this.customThemeColor : (this.isDarkMode ? '#333333' : '#E0E0E0'))
                     }
+                    Column() {
+                      // ⭐ 第一行：名称 + 等级徽章 + 大会员标
+                      Row() {
+                        // 名称过长时单行省略。⚠️ 不能加 layoutWeight：那会把剩余宽度全占掉，
+                        // 徽章被顶到卡片最右端（与名称隔开一大段空白）。
+                        Text(this.userDisplayName)
+                          .fontSize(16)
+                          .fontWeight(FontWeight.Medium)
+                          .fontColor($r('app.color.color_primary_text'))
+                          .maxLines(1)
+                          .textOverflow({ overflow: TextOverflow.Ellipsis })
+                          .constraintSize({ maxWidth: 110 })
+                          .flexShrink(1)
+                        // 等级徽章（仅登录且等级已取到时显示）
+                        if (this.isLoggedIn && this.userLevel > 0) {
+                          Text(`LV${this.userLevel}`)
+                            .fontSize(9)
+                            .fontWeight(FontWeight.Medium)
+                            .fontColor(this.isDarkMode ? '#C8CDD4' : '#3D4650')
+                            .padding({ left: 4, right: 4, top: 1, bottom: 1 })
+                            .borderRadius(4)
+                            .backgroundColor(this.isDarkMode ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.10)')
+                            .margin({ left: 5 })
+                            .flexShrink(0)
+                            .maxLines(1)
+                        }
+                        // 大会员标（金色，随主题深浅保持可读）
+                        if (this.isLoggedIn && this.vipStatus === 1) {
+                          Text(this.vipType === 2 ? '年度大会员' : '大会员')
+                            .fontSize(9)
+                            .fontWeight(FontWeight.Medium)
+                            .fontColor(this.isDarkMode ? '#F0C46A' : '#6B4408')
+                            .padding({ left: 5, right: 5, top: 1, bottom: 1 })
+                            .borderRadius(4)
+                            .backgroundColor(this.isDarkMode ? 'rgba(240,196,106,0.20)' : 'rgba(214,158,58,0.28)')
+                            .margin({ left: 4 })
+                            .flexShrink(0)
+                            .maxLines(1)
+                        }
+                      }
+                      .width('100%')
+                      .alignItems(VerticalAlign.Center)
+                      .justifyContent(FlexAlign.Start)
+
+                      // ⭐ 第二行：UID · 硬币（替代原「进入个人空间」，入口交给整行点击）
+                      if (this.isLoggedIn) {
+                        Text(this.userCoins >= 0
+                          ? `UID ${this.userMid} · 硬币 ${fmtCoin(this.userCoins)}`
+                          : `UID ${this.userMid}`)
+                          .fontSize(11)
+                          .fontColor(this.isDarkMode ? '#9AA3AD' : '#4A525C')
+                          .margin({ top: 4 })
+                          .maxLines(1)
+                          .textOverflow({ overflow: TextOverflow.Ellipsis })
+                      } else {
+                        Text('点击登录')
+                          .fontSize(12)
+                          .fontColor(this.customThemeColor)
+                          .margin({ top: 4 })
+                          .fontWeight(FontWeight.Medium)
+                      }
+                    }
+                    .margin({ left: 12 })
+                    .layoutWeight(1)
+                    .alignItems(HorizontalAlign.Start)
                   }
-                  .margin({ left: 12 })
-                  .alignItems(HorizontalAlign.Start)
-                  .constraintSize({ maxWidth: 132 })
+                  .layoutWeight(1)
+                  .justifyContent(FlexAlign.Start)
+                  .alignItems(VerticalAlign.Center)
+                  .onClick(() => {
+                    if (this.isLoggedIn) {
+                      this.getUIContext().getRouter().pushUrl({
+                        url: 'pages/UpSpacePage',
+                        params: {
+                          mid: this.userMid,
+                          upName: this.userDisplayName,
+                          upFace: this.userAvatarUrl
+                        }
+                      }).catch((err: Error) => {
+                        logWarn(`[ProfilePage] 进入个人空间失败: ${err}`);
+                      });
+                    } else {
+                      this.goToLogin();
+                    }
+                  })
+
+                  // ⭐ 退出登录：与头像同一排，靠右（兄弟节点，不会被上面的进入空间点击吃掉）
+                  // 深浅色互为反色（深色白底黑图标 / 浅色黑底白图标），与「欢迎加入」卡片同一套规则
+                  if (this.isLoggedIn) {
+                    Stack() {
+                      Circle({ width: 30, height: 30 })
+                        .fill(this.isDarkMode ? '#FFFFFF' : '#000000')
+                      Image(this.isDarkMode
+                        ? $r('app.media.trash_fituichu')
+                        : $r('app.media.trash_fituichu_white'))
+                        .width(15)
+                        .height(15)
+                    }
+                    .width(30)
+                    .height(30)
+                    .clickEffect({ level: 2, scale: 0.88 })
+                    .onClick(() => { this.showLogoutConfirm(); })
+                  }
                 }
                 .layoutWeight(1)
-                .justifyContent(FlexAlign.Center)
+                .width('100%')
                 .alignItems(VerticalAlign.Center)
-
-                // ⭐ 退出登录：与头像同一排，靠右
-                // 深浅色互为反色（深色白底黑图标 / 浅色黑底白图标），与「欢迎加入」卡片同一套规则
-                if (this.isLoggedIn) {
-                  Stack() {
-                    Circle({ width: 30, height: 30 })
-                      .fill(this.isDarkMode ? '#FFFFFF' : '#000000')
-                    Image(this.isDarkMode
-                      ? $r('app.media.trash_fituichu')
-                      : $r('app.media.trash_fituichu_white'))
-                      .width(15)
-                      .height(15)
+                .justifyContent(FlexAlign.Start)
+                .clickEffect({ level: 2, scale: 0.96 })
+                .onTouch((e: TouchEvent) => {
+                  if (e.type === TouchType.Down) {
+                    this.pressedHighlightId = 'avatar_card';
+                  } else if (e.type === TouchType.Up || e.type === TouchType.Cancel) {
+                    this.pressedHighlightId = '';
                   }
-                  .width(30)
-                  .height(30)
-                  .clickEffect({ level: 2, scale: 0.88 })
-                  .onClick(() => { this.showLogoutConfirm(); })
+                })
+
+                // ── 下半区：统计条（登录后才显示；每格独立可点）──
+                if (this.isLoggedIn) {
+                  this.statBar()
                 }
               }
-              .alignItems(VerticalAlign.Center)
-              .justifyContent(FlexAlign.Center)
-              .padding({ left: 12, right: 12 })
               .width('100%')
               .height('100%')
-              .clickEffect({ level: 2, scale: 0.93 })
+              .padding({ left: 12, right: 12, top: 10, bottom: 6 })
             }
             .layoutWeight(2)
             .height('100%')
@@ -1718,29 +2026,6 @@ export struct ProfilePage {
             .borderRadius(24)
             .padding({ left: 6, right: 6, top: 6, bottom: 6 })
             .shadow({ radius: 16, color: '#1A000000', offsetY: 4 })
-            .onTouch((e: TouchEvent) => {
-              if (e.type === TouchType.Down) {
-                this.pressedHighlightId = 'avatar_card';
-              } else if (e.type === TouchType.Up || e.type === TouchType.Cancel) {
-                this.pressedHighlightId = '';
-              }
-            })
-            .onClick(() => {
-              if (this.isLoggedIn) {
-                this.getUIContext().getRouter().pushUrl({
-                  url: 'pages/UpSpacePage',
-                  params: {
-                    mid: this.userMid,
-                    upName: this.userDisplayName,
-                    upFace: this.userAvatarUrl
-                  }
-                }).catch((err: Error) => {
-                  logWarn(`[ProfilePage] 进入个人空间失败: ${err}`);
-                });
-              } else {
-                this.goToLogin();
-              }
-            })
 
             // 深色模式（占 1/3）
             Stack() {

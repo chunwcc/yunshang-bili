@@ -4138,11 +4138,33 @@ export async function uploadCommentImage(filePath: string, mimeType: string, ext
 }
 
 // ==================== 用户信息接口 ====================
+
+/** nav 接口的等级信息 */
+export interface NavLevelInfo {
+  current_level: number;
+  current_exp?: number;
+  next_exp?: number;
+}
+
+/** nav 接口的大会员信息 */
+export interface NavVipInfo {
+  type: number;        // 0=非大会员 1=月度 2=年度
+  status: number;      // 0=未开通 1=已开通
+  due_date?: number;   // 到期时间（毫秒）
+}
+
 export interface UserInfo {
   isLogin: boolean;
   mid: number;
   uname: string;
   face: string;
+  // ⭐ nav 本来就返回这些字段，之前只解析了 4 个。补上后等级/大会员/硬币**无需额外请求**。
+  level_info?: NavLevelInfo;
+  vip?: NavVipInfo;
+  /** 硬币余额。⚠️ nav 里没有 `coins` 字段，硬币数就是 `money`（实测 2026-11-02：money=104.8） */
+  money?: number;
+  /** 大会员到期时间（毫秒）。不能只看 vip.status：过期后 status 仍可能是 1，要靠 dueDate 判定 */
+  vipDueDate?: number;
 }
 
 /**
