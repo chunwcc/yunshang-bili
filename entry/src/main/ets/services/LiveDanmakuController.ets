@@ -184,14 +184,17 @@ export class LiveDanmakuController {
       this.clock += dt;
       this.renderer.render(this.visible, this.clock, dt);
       if (this.visible.length > 0) {
-        const next: DanmakuItem[] = [];
+        // ⭐ 原地压缩：飞出屏幕的弹幕（renderer 已置 visible=false）直接释放。
+        //    旧实现每帧都 new 一个数组，60fps 下是持续的 GC 压力。
+        let write: number = 0;
         for (let i = 0; i < this.visible.length; i++) {
           const it = this.visible[i];
           if (it.visible && !it.dropped) {
-            next.push(it);
+            this.visible[write] = it;
+            write++;
           }
         }
-        this.visible = next;
+        this.visible.length = write;
       }
     } catch (e) {
       logError(`[LiveDanmaku] 渲染异常: ${e}`);

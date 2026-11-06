@@ -124,6 +124,12 @@ export struct LivePage {
 
   // 已显示的 roomId 集合（去重）
   private roomIdSet: Set<number> = new Set();
+  /** 请求序号：快速切分区时丢弃旧响应，避免"切到 A 却显示 B 的内容" */
+  private loadSeq: number = 0;
+  /** 分区首页缓存：来回切分区秒开（下拉刷新会清掉当前分区） */
+  private areaFirstPageCache: Map<number, LiveFeedRoom[]> = new Map();
+  /** 分区列表内存缓存（避免每次进页面都请求 Area/getList） */
+  private areasCacheTime: number = 0;
 
   // 滚动控制器
   private scroller: Scroller = new Scroller();
@@ -212,6 +218,11 @@ export struct LivePage {
   // ==================== 数据加载 ====================
 
   private async loadAreas(): Promise<void> {
+    // 分区表 10 分钟内不重复请求（页面常驻，来回切 tab 不必再打接口）
+    if (this.areas.length > 0 && this.areasCacheTime > 0 && Date.now() - this.areasCacheTime < 600000) {
+      this.recalcLiveBarW();
+      return;
+    }
     try {
       const areas = await fetchLiveAreas();
       if (areas.length > 0) {
@@ -234,6 +245,7 @@ export struct LivePage {
         }
         this.areas = tabList;
       }
+      this.areasCacheTime = Date.now();
       this.recalcLiveBarW();
     } catch (err) {
       logError(`[LivePage] 加载分区失败: ${err}`);
@@ -267,20 +279,41 @@ export struct LivePage {
   }
 
   private async loadLiveRooms(isRefresh: boolean): Promise<void> {
+    const seq: number = ++this.loadSeq;
+    const areaId: number = this.selectedAreaId;
     try {
       if (isRefresh) {
         this.isLoading = true;
         this.pageNum = 1;
         this.roomIdSet.clear();
+        // ⭐ 命中该分区首页缓存：直接渲染（来回切分区不用重新等网络）
+        const cached: LiveFeedRoom[] | undefined = this.areaFirstPageCache.get(areaId);
+        if (cached && cached.length > 0) {
+          for (let i = 0; i < cached.length; i++) {
+            this.roomIdSet.add(cached[i].roomId);
+          }
+          this.dataSource.reloadItems(cached);
+          this.prepareCardAnimation();
+          this.hasMore = cached.length >= this.PAGE_SIZE;
+          this.pageNum = 2;
+          this.isLoading = false;
+          this.isRefreshing = false;
+          return;
+        }
       } else {
         this.isLoadingMore = true;
       }
 
       let rooms: LiveFeedRoom[];
-      if (this.selectedAreaId === 0) {
+      if (areaId === 0) {
         rooms = await fetchRecommendedLiveRooms(this.pageNum, this.PAGE_SIZE);
       } else {
-        rooms = await fetchLiveRoomsByArea(this.selectedAreaId, this.pageNum, this.PAGE_SIZE);
+        rooms = await fetchLiveRoomsByArea(areaId, this.pageNum, this.PAGE_SIZE);
+      }
+
+      // ⭐ 竞态守卫：期间用户已经切到别的分区，丢弃这次响应
+      if (seq !== this.loadSeq) {
+        return;
       }
 
       const uniqueRooms: LiveFeedRoom[] = [];
@@ -302,6 +335,9 @@ export struct LivePage {
 
       this.hasMore = uniqueRooms.length >= this.PAGE_SIZE;
       this.pageNum++;
+      if (isRefresh) {
+        this.areaFirstPageCache.set(areaId, uniqueRooms);
+      }
     } catch (err) {
       logError(`[LivePage] 加载直播列表失败: ${err}`);
     } finally {
@@ -406,6 +442,7 @@ export struct LivePage {
 
   private onRefresh(): void {
     this.isRefreshing = true;
+    this.areaFirstPageCache.delete(this.selectedAreaId);
     this.loadLiveRooms(true);
     this.loadFollowedLiveRooms();
   }

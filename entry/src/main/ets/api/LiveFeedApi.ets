@@ -71,7 +71,10 @@ export async function fetchLiveRoomsByArea(
 ): Promise<LiveFeedRoom[]> {
   const httpRequest = http.createHttp();
   try {
-    const url = `${LIVE_BASE}/room/v3/Area/getRoomList?area_id=${subAreaId}&page=${page}&page_size=${pageSize}`;
+    // ⚠️ 必须带 sort_type=online：不带时部分分区（英雄联盟/王者荣耀/三角洲…）
+    //    会返回 code=0 但 list 为空（静默空列表），表现为「某些分类下没有内容」
+    const url = `${LIVE_BASE}/room/v3/Area/getRoomList?area_id=${subAreaId}`
+      + `&sort_type=online&platform=web&page=${page}&page_size=${pageSize}`;
     logInfo(`[LiveFeedApi] 请求直播列表: area_id=${subAreaId}, page=${page}`);
 
     const response = await httpRequest.request(url, {
@@ -255,8 +258,9 @@ function fallbackAreas(): LiveArea[] {
     { id: 329, name: '无畏契约', parentName: '网游' },
     { id: 240, name: 'APEX英雄', parentName: '网游' },
     { id: 89, name: 'CS2', parentName: '网游' },
-    { id: 1, name: '娱乐', parentName: '娱乐' },
-    { id: 3, name: '电台', parentName: '电台' }
+    // ⚠️ 这里必须是**子分区 id**：1=娱乐、3=手游 都是父分区，直接请求会 404
+    { id: 530, name: '萌宅领域', parentName: '娱乐' },
+    { id: 21, name: '视频唱见', parentName: '娱乐' }
   ];
 }
 

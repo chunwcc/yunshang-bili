@@ -1,5 +1,5 @@
 ﻿// LivePlayerPage.ets — 直播播放页（使用 Video 组件）
-import { window, display, KeyboardAvoidMode, Animator, AnimatorResult } from '@kit.ArkUI';
+import { window, display, KeyboardAvoidMode, Animator, AnimatorResult, curves } from '@kit.ArkUI';
 import { logInfo, logWarn, logError } from '../utils/Logger';
 import { audio } from '@kit.AudioKit';
 import { common } from '@kit.AbilityKit';
@@ -1513,8 +1513,10 @@ struct LivePlayerPage {
     }
     const next: LiveMessage[] = this.liveMessages.slice();
     next.push(msg);
-    if (next.length > 120) {
-      next.splice(0, next.length - 120);
+    // 批量裁剪：攒到 140 条再一次性丢到 100，避免到上限后每条新消息都动一次数组
+    // （每次 splice 都会让列表重排，频繁裁剪是隐形卡顿源）
+    if (next.length > 140) {
+      next.splice(0, next.length - 100);
     }
     this.liveMessages = next;
     this.scrollChatToBottom();
@@ -1546,7 +1548,13 @@ struct LivePlayerPage {
     if (this.fsMode === on) {
       return;
     }
-    this.fsMode = on;
+    // 视频区域/圆角/内边距都从 fsMode 派生，一次 animateTo 全部补间（~300ms 弹簧）
+    this.getUIContext().animateTo({
+      duration: 300,
+      curve: curves.springMotion(0.42, 0.9)
+    }, () => {
+      this.fsMode = on;
+    });
     this.applyFullscreenOrientation();
     this.isControlsVisible = true;
     this.showControlsTemporarily();
@@ -2588,6 +2596,9 @@ struct LivePlayerPage {
         .position({ x: 0, y: this.portraitChatTop() })
         // 透明：让直播间背景（壁纸）透过评论区显示
         .backgroundColor(Color.Transparent)
+        .transition(TransitionEffect.OPACITY
+          .combine(TransitionEffect.translate({ y: 24 }))
+          .animation({ duration: 240, curve: Curve.EaseInOut }))
         .zIndex(10)
       }
 
@@ -2622,6 +2633,9 @@ struct LivePlayerPage {
         .position({ x: this.winW - this.chatPanelW(), y: 0 })
         // 透明：让直播间背景（壁纸）透出来
         .backgroundColor(Color.Transparent)
+        .transition(TransitionEffect.OPACITY
+          .combine(TransitionEffect.translate({ x: 48 }))
+          .animation({ duration: 240, curve: Curve.EaseInOut }))
         .zIndex(10)
       }
 
