@@ -15,6 +15,14 @@ interface QualityOption {
   label: string;
 }
 
+/** 视频画面在窗口中的显示矩形（vp） */
+interface VideoRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 @Entry
 @Component
 struct LivePlayerPage {
@@ -30,13 +38,19 @@ struct LivePlayerPage {
   @State currentQn: number = 0;  // 0=未设置，从API获取后选择最高画质
   @State showQualityPicker: boolean = false;
 
+  // ========== 响应式窗口尺寸（唯一真源，替代 display 快照） ==========
+  @State winW: number = 0;              // 窗口宽（vp）
+  @State winH: number = 0;              // 窗口高（vp）
+  @State isLandscape: boolean = false;  // 窗口是否横屏
+  @State streamAR: number = 16 / 9;     // 直播流宽高比（来自 API / videoSizeChange）
+
   // ========== Video 组件状态 ==========
   @State videoSrc: string = '';
   @State videoSrcVersion: number = 0;  // 强制重建 Video 用
   private av: media.AVPlayer | null = null; // AVPlayer 播放器（支持后台续播）
   private xc: XComponentController = new XComponentController(); // 视频渲染表面
   private surfaceId_: string = '';
-  @State ratioMode: string = '16:9'; // 画面比例：fill=铺满 / 16:9 / 4:3
+  @State ratioMode: string = 'fit'; // 画面比例：fit=适应 / crop=裁剪 / fill=拉伸
 
   // ========== 动态画质列表（从API获取，只显示此直播间有的画质） ==========
   @State availableQualities: QualityOption[] = [];
@@ -46,7 +60,6 @@ struct LivePlayerPage {
   @State currentTime: number = 0;
   @State duration: number = 0;
   @State isControlsVisible: boolean = true;
-  @State isFullscreen: boolean = true;
   @State isMuted: boolean = false;
   @State playbackRate: number = 1.0;
   @State showGestureHint: boolean = false;
@@ -63,15 +76,15 @@ struct LivePlayerPage {
   @State sb: number = 1; // start brightness (0-1)
   @State vol: number = 1;
   @State bri: number = 1;
-  // 安全区域
+  // 安全区域（px→vp 转换后）
   @State safeTop: number = 28;
   @State safeBottom: number = 24;
+  @State safeLeft: number = 0;
+  @State safeRight: number = 0;
 
   private maxRetries: number = 8;
   private controlsTimer: number = -1;
   private retryTimer: number = -1;
-  private screenW: number = 720;
-  private screenH_: number = 0;  // 屏幕高度(vp)，用于手势灵敏度
   /** ⭐ 设备媒体音量最大档位（readSystemVolume 时刷新） */
   private maxVol_: number = 15
   /** ⭐ AudioVolumeManager 实例（供 streamVolumeChange 监听/注销） */
@@ -98,20 +111,9 @@ struct LivePlayerPage {
   @StorageLink('cardStyleLiveQuality') cardStyleLiveQuality: boolean = true;
   @StorageLink('bgp') bgp: boolean = false; // 后台播放开关（与普通播放器共用持久化 key）
 
-  /** 当前窗口是否为横屏（基于窗口尺寸，非物理屏幕） */
+  /** 当前窗口是否为横屏（由 onAreaChange 维护，旋转后自动更新） */
   private isWindowLandscape(): boolean {
-    if (this.mw) {
-      try {
-        const wp = this.mw.getWindowProperties();
-        return wp.windowRect.width > wp.windowRect.height;
-      } catch (_e) {}
-    }
-    try {
-      const d = display.getDefaultDisplaySync();
-      return d.width > d.height;
-    } catch (_e) {
-      return false;
-    }
+    return this.winW > this.winH;
   }
 
   // ========== 手势状态（onVT 风格） ==========
@@ -127,43 +129,68 @@ struct LivePlayerPage {
 
   // ==================== 画面比例 + 重置直播 ====================
 
-  private screenWv(): number {
-    try {
-      const d = display.getDefaultDisplaySync();
-      return d.width / d.densityPixels;
-    } catch (_e) { return 720; }
+  /**
+   * 在给定区域里按 streamAR 计算「视频显示矩形」。
+   * fit=适应（contain，留黑边）/ crop=裁剪（cover，裁掉超出部分）/ fill=拉伸（撑满，变形）
+   */
+  private fitRect(x: number, y: number, w: number, h: number): VideoRect {
+    const ar: number = this.streamAR > 0 ? this.streamAR : 16 / 9;
+    let vw: number = w;
+    let vh: number = h;
+    if (this.ratioMode !== 'fill') {
+      const scale: number = this.ratioMode === 'crop'
+        ? Math.max(w / ar, h)
+        : Math.min(w / ar, h);
+      vw = ar * scale;
+      vh = scale;
+    }
+    return { x: x + (w - vw) / 2, y: y + (h - vh) / 2, w: vw, h: vh };
   }
 
-  private screenHv(): number {
-    try {
-      const d = display.getDefaultDisplaySync();
-      return d.height / d.densityPixels;
-    } catch (_e) { return 405; }
+  /** ⭐ 视频显示矩形：旋转/切画质/换比例都由它派生，不再读 display 快照 */
+  private videoRect(): VideoRect {
+    if (this.winW <= 0 || this.winH <= 0) {
+      return { x: 0, y: 0, w: 1, h: 1 };
+    }
+    return this.fitRect(0, 0, this.winW, this.winH);
   }
 
-  private videoW(): number {
-    const sw = this.screenWv();
-    const sh = this.screenHv();
-    if (this.ratioMode === 'fill') { return sw; }
-    const r = this.ratioMode === '4:3' ? 4 / 3 : 16 / 9;
-    return (sw / sh > r) ? sh * r : sw;
+  /**
+   * ⭐ 视频矩形与窗口的可见交集。
+   *   crop 模式下视频会比窗口大（被裁），四角按钮必须贴可见边缘，
+   *   否则会跟着视频矩形跑到屏幕外。
+   */
+  private videoOverlayRect(): VideoRect {
+    const r: VideoRect = this.videoRect();
+    const x: number = Math.max(0, r.x);
+    const y: number = Math.max(0, r.y);
+    const right: number = Math.min(this.winW, r.x + r.w);
+    const bottom: number = Math.min(this.winH, r.y + r.h);
+    return { x, y, w: Math.max(1, right - x), h: Math.max(1, bottom - y) };
   }
 
-  private videoH(): number {
-    const sw = this.screenWv();
-    const sh = this.screenHv();
-    if (this.ratioMode === 'fill') { return sh; }
-    const r = this.ratioMode === '4:3' ? 4 / 3 : 16 / 9;
-    return (sw / sh > r) ? sh : sw / r;
+  /** 优先用接口返回的档位名（杜比/4K/2K...），静态表兜底 */
+  private qualityLabel(): string {
+    for (let i = 0; i < this.availableQualities.length; i++) {
+      if (this.availableQualities[i].qn === this.currentQn) {
+        return this.availableQualities[i].label;
+      }
+    }
+    return getLiveQualityLabel(this.currentQn);
   }
 
-  /** ⭐ 循环切换画面比例 */
+  private ratioLabel(): string {
+    if (this.ratioMode === 'crop') { return '裁剪'; }
+    if (this.ratioMode === 'fill') { return '拉伸'; }
+    return '适应';
+  }
+
+  /** ⭐ 循环切换：适应 → 裁剪 → 拉伸 */
   private cycleAspectRatio(): void {
-    if (this.ratioMode === '16:9') { this.ratioMode = '4:3'; }
-    else if (this.ratioMode === '4:3') { this.ratioMode = 'fill'; }
-    else { this.ratioMode = '16:9'; }
-    const label = this.ratioMode === 'fill' ? '铺满' : (this.ratioMode === '4:3' ? '4:3' : '16:9');
-    this.showBottomHintTemporarily(`画面比例：${label}`);
+    if (this.ratioMode === 'fit') { this.ratioMode = 'crop'; }
+    else if (this.ratioMode === 'crop') { this.ratioMode = 'fill'; }
+    else { this.ratioMode = 'fit'; }
+    this.showBottomHintTemporarily(`画面比例：${this.ratioLabel()}`);
     this.showControlsTemporarily();
   }
 
@@ -192,10 +219,14 @@ struct LivePlayerPage {
   aboutToAppear() {
     // ⭐ 注册系统音量变化监听（音量键调节时同步 app 内滑块/手势起点）
     this.registerVolumeListener();
+    // ⭐ 首帧前的窗口尺寸估算（真正的尺寸由根节点 onAreaChange 接管）
+    this.initWindowSize();
+    // ⭐ 继承全局旋转锁，不再无条件放开自动旋转
+    const lock: string = AppStorage.get<string>('screenOrientationLock') ?? '自动旋转';
+    this.rotationMode = lock === '锁定竖屏' ? 'portrait' : (lock === '锁定横屏' ? 'landscape' : 'auto');
     const params = this.getUIContext().getRouter().getParams() as Record<string, Object>;
     if (params && params['roomId']) {
       this.roomId = params['roomId'] as number;
-      this.initSwipeControl();
       this.getSafeArea();
       this.initPlayback();
     } else {
@@ -203,6 +234,48 @@ struct LivePlayerPage {
       this.loading = false;
     }
   }
+
+  /** ⭐ 首帧窗口尺寸（vp）；后续以 onAreaChange 为准 */
+  private initWindowSize(): void {
+    try {
+      const d = display.getDefaultDisplaySync();
+      const ui = this.getUIContext();
+      this.winW = ui.px2vp(d.width);
+      this.winH = ui.px2vp(d.height);
+      this.isLandscape = this.winW > this.winH;
+    } catch (_e) {
+      this.winW = 360;
+      this.winH = 780;
+    }
+  }
+
+  /**
+   * ⭐ 根节点尺寸变化（旋转/分屏/折叠）→ 更新唯一真源。
+   *    onAreaChange 在布局阶段回调，@State 更新必须延后到本帧结束。
+   */
+  private onRootArea = (o: Area, n: Area): void => {
+    const w: number = n.width as number;
+    const h: number = n.height as number;
+    if (w <= 0 || h <= 0) { return; }
+    if (Math.abs(w - this.winW) < 1 && Math.abs(h - this.winH) < 1) { return; }
+    setTimeout(() => {
+      const wasLandscape: boolean = this.isLandscape;
+      this.winW = w;
+      this.winH = h;
+      this.isLandscape = w > h;
+      if (wasLandscape !== this.isLandscape) {
+        // 旋转时关掉浮层，避免旧位置的菜单停在半空
+        this.showQualityPicker = false;
+        this.isControlsVisible = true;
+        logInfo(`[LivePlayer] 窗口旋转: ${w.toFixed(0)}x${h.toFixed(0)}, 横屏=${this.isLandscape}`);
+      }
+      this.refreshSafeArea();
+      // 系统旋转动画约 460ms，avoid area 稳定后再补读一次
+      if (wasLandscape !== this.isLandscape) {
+        setTimeout(() => { this.refreshSafeArea(); }, 260);
+      }
+    }, 0);
+  };
 
   /**
    * 初始化播放：先获取画质信息选最高画质，再开始播放
@@ -220,16 +293,11 @@ struct LivePlayerPage {
         //    startPlay 是异步的（先取画质再拉流），可能早于这里拿到窗口，
         //    而 onVideoStart 里那次调用会因 mw 还是 undefined 而被静默丢弃。
         this.updateKeepScreen();
-        // 初始化为自动旋转模式
+        // 应用旋转模式（已继承全局锁定）
         this.applyRotationMode();
-        const top = w.getWindowAvoidArea(window.AvoidAreaType.TYPE_SYSTEM);
-        if (top.topRect.height > 0) {
-          this.safeTop = top.topRect.height;
-        }
-        const bottom = w.getWindowAvoidArea(window.AvoidAreaType.TYPE_NAVIGATION_INDICATOR);
-        if (bottom.bottomRect.height > 0) {
-          this.safeBottom = bottom.bottomRect.height;
-        }
+        // ⭐ 安全区必须转成 vp：getWindowAvoidArea 返回的是 px，
+        //    之前直接当 vp 用，导致顶栏被推下 ~200px（横屏尤其明显）
+        this.refreshSafeArea();
         // 进入直播间立即隐藏导航小白条
         try {
           w.setWindowSystemBarEnable([]);
@@ -238,6 +306,21 @@ struct LivePlayerPage {
     } catch (_e) {
       // 使用默认值
     }
+  }
+
+  /** ⭐ 重新读取安全区并转 vp；旋转后必须重读，否则控件会钻到刘海/导航条下 */
+  private refreshSafeArea(): void {
+    if (!this.mw) { return; }
+    try {
+      const sys: window.AvoidArea = this.mw.getWindowAvoidArea(window.AvoidAreaType.TYPE_SYSTEM);
+      const nav: window.AvoidArea = this.mw.getWindowAvoidArea(window.AvoidAreaType.TYPE_NAVIGATION_INDICATOR);
+      const ui = this.getUIContext();
+      this.safeTop = Math.max(0, ui.px2vp(sys.topRect.height));
+      this.safeLeft = Math.max(0, ui.px2vp(sys.leftRect.width));
+      this.safeRight = Math.max(0, ui.px2vp(sys.rightRect.width));
+      this.safeBottom = Math.max(0, ui.px2vp(nav.bottomRect.height));
+      logInfo(`[LivePlayer] 安全区(vp): top=${this.safeTop.toFixed(1)} bottom=${this.safeBottom.toFixed(1)} L=${this.safeLeft.toFixed(1)} R=${this.safeRight.toFixed(1)}`);
+    } catch (_e) {}
   }
 
   /**
@@ -292,8 +375,13 @@ struct LivePlayerPage {
         } else {
           w.setWindowSystemBarEnable(['status', 'navigation']);
         }
-        // 恢复屏幕方向为用户系统默认（自动旋转）
-        w.setPreferredOrientation(window.Orientation.AUTO_ROTATION).catch(() => {});
+        // ⭐ 退出时恢复「全局旋转锁」，而不是无条件放开自动旋转
+        //    （用户可能在设置里选了锁定竖屏/横屏）
+        const lock: string = AppStorage.get<string>('screenOrientationLock') ?? '自动旋转';
+        let restore: window.Orientation = window.Orientation.AUTO_ROTATION;
+        if (lock === '锁定竖屏') { restore = window.Orientation.PORTRAIT; }
+        else if (lock === '锁定横屏') { restore = window.Orientation.AUTO_ROTATION_LANDSCAPE; }
+        w.setPreferredOrientation(restore).catch(() => {});
       });
     } catch (_e) {}
   }
@@ -354,6 +442,15 @@ struct LivePlayerPage {
         this.errorMsg = '获取直播流地址失败';
         this.loading = false;
         return;
+      }
+
+      // ⭐ 起播前先拿到流分辨率，避免竖屏源被按 16:9 摆错
+      if (streamResult.videoWidth && streamResult.videoHeight
+        && streamResult.videoWidth > 0 && streamResult.videoHeight > 0) {
+        const ar: number = streamResult.videoWidth / streamResult.videoHeight;
+        if (ar > 0.2 && ar < 5) {
+          this.streamAR = ar;
+        }
       }
 
       this.loading = true;
@@ -487,6 +584,7 @@ struct LivePlayerPage {
     try {
       av.off('stateChange');
       av.off('error');
+      av.off('videoSizeChange');
       if (av.state !== 'released') { await av.release(); }
     } catch (_e) {}
   }
@@ -502,6 +600,16 @@ struct LivePlayerPage {
     av.on('error', (err: BusinessError) => {
       logError(`[LivePlayer] AVPlayer error: ${err?.message ?? err}`);
       this.onVideoError();
+    });
+    // ⭐ 真实分辨率（切流/切画质都会回调）→ 驱动视频矩形，竖屏源不再被按 16:9 处理
+    av.on('videoSizeChange', (w: number, h: number) => {
+      if (w > 0 && h > 0) {
+        const ar: number = w / h;
+        if (ar > 0.2 && ar < 5) {
+          this.streamAR = ar;
+          logInfo(`[LivePlayer] 视频尺寸: ${w}x${h} → AR=${ar.toFixed(3)}`);
+        }
+      }
     });
     av.on('stateChange', async (st: string) => {
       try {
@@ -588,25 +696,25 @@ struct LivePlayerPage {
     return rows;
   }
 
-  /** ⭐ 后台播放开关（参考普通播放器 VideoControls）：切换持久化标志并给出提示 */
-  private toggleBackgroundPlayback(): void {
-    this.bgp = !this.bgp;
-    AppStorage.set<boolean>('bgp', this.bgp);
+  private setBackgroundPlayback(on: boolean): void {
+    if (this.bgp === on) { return; }
+    this.bgp = on;
+    AppStorage.set<boolean>('bgp', on);
     try {
       const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
       preferences.getPreferences(ctx, 'my_app_settings').then((pref) => {
-        pref.put('bgp', this.bgp);
+        pref.put('bgp', on);
         pref.flush();
       });
     } catch (e) {
       logError('[LivePlayer] bgp 持久化保存失败', e);
     }
     this.showBottomHintTemporarily(
-      this.bgp ? '后台播放已开启' : '后台播放已关闭',
+      on ? '后台播放已开启' : '后台播放已关闭',
       $r('app.media.headphones_fill')
     );
     // ⭐ 接入媒体会话：开启→建会话（在播时）；关闭→结束会话并暂停（若在后台）
-    if (this.bgp) {
+    if (on) {
       if (this.av && (this.av.state === 'playing' || this.av.state === 'prepared')) {
         this.setupLiveView_();
       }
@@ -617,6 +725,53 @@ struct LivePlayerPage {
         try { this.av.pause(); } catch (_) {}
       }
     }
+    this.showControlsTemporarily();
+  }
+
+  // ==================== 选项菜单 ====================
+
+  private openQualityPicker(): void {
+    this.showQualityPicker = true;
+    this.holdControls();
+  }
+
+  /** ⭐ 菜单打开期间冻结自动隐藏计时器，否则 4s 后控制层会连同菜单背景一起消失 */
+  private holdControls(): void {
+    if (this.controlsTimer !== -1) {
+      clearTimeout(this.controlsTimer);
+      this.controlsTimer = -1;
+    }
+    this.isControlsVisible = true;
+  }
+
+  /**
+   * ⚠️ 项目里这两个 SVG 的**文件名与图形相反**（实测）：
+   *    ic_public_lock.svg   → 画的是「开锁」
+   *    ic_public_unlock.svg → 画的是「闭锁」
+   * 所以 auto（不锁）用 lock 文件，锁定态用 unlock 文件。
+   */
+  private rotationLockIcon(): Resource {
+    return this.rotationMode === 'auto'
+      ? $r('app.media.ic_public_lock')
+      : $r('app.media.ic_public_unlock');
+  }
+
+  /**
+   * ⭐ 底部手势区（即使导航条已隐藏）会吞掉贴底约 35~40vp 内的点击：
+   *    实测 y=1240px 的暂停按钮点不动，抬到 y=1205px 就正常。
+   *    所以 Dock 必须离屏幕底部至少 40vp。
+   */
+  private dockBottomPad(): number {
+    return Math.max(40, this.safeBottom + 12);
+  }
+
+  private qualityMenuX(): number {
+    return Math.max(8, this.winW - 12 - 216);
+  }
+
+  /** 画质胶囊在顶栏右侧，菜单直接从顶栏下方展开 */
+  private qualityMenuY(): number {
+    return Math.max(8, this.safeTop + 52 + 4);
   }
 
   private showControlsTemporarily(): void {
@@ -624,7 +779,11 @@ struct LivePlayerPage {
     if (this.controlsTimer !== -1) clearTimeout(this.controlsTimer);
     this.controlsTimer = setTimeout(() => {
       if (!this.showQualityPicker) {
-        this.isControlsVisible = false;
+        // ⭐ 显隐是 opacity 状态变化，不是挂载/卸载，transition 不会触发；
+        //    用 animateTo 包裹状态变更，控制栏才有淡出动画
+        this.getUIContext().animateTo({ duration: 260, curve: Curve.EaseInOut }, () => {
+          this.isControlsVisible = false;
+        });
       }
     }, 4000);
   }
@@ -690,17 +849,6 @@ struct LivePlayerPage {
         this.volListening_ = false;
       }
     } catch (_e) {}
-  }
-
-  private initSwipeControl(): void {
-    try {
-      const d = display.getDefaultDisplaySync();
-      this.screenW = this.getUIContext().px2vp(d.width);
-      this.screenH_ = this.getUIContext().px2vp(d.height);
-    } catch (_e) {
-      this.screenW = 360;
-      this.screenH_ = 720;
-    }
   }
 
   // ==================== 手势系统（onVT 风格） ====================
@@ -796,7 +944,7 @@ struct LivePlayerPage {
       if (adx > 25 || ady > 25) {
         if (ady > adx) {
           // 垂直滑动：左30% = 亮度，右70% = 音量
-          const centerX = this.screenW / 2;
+          const centerX = (this.winW > 0 ? this.winW : 360) / 2;
           if (t.windowX < centerX) {
             this.gm_ = 'brightness';
           } else {
@@ -845,11 +993,14 @@ struct LivePlayerPage {
     // 单击切换控制栏显隐（只在画面中部点击时切换，不影响顶部/底部按钮区域）
     if (!this.dtp_ && !wasMoved && !wasLongPress) {
       const tapY = this.sy_;
-      const midLow = this.screenH_ * 0.2;
-      const midHigh = this.screenH_ * 0.8;
+      const hNow: number = this.winH > 0 ? this.winH : 780;
+      const midLow = hNow * 0.2;
+      const midHigh = hNow * 0.8;
       const inMiddleArea: boolean = tapY >= midLow && tapY <= midHigh;
       if (inMiddleArea) {
-        this.isControlsVisible = !this.isControlsVisible;
+        this.getUIContext().animateTo({ duration: 260, curve: Curve.EaseInOut }, () => {
+          this.isControlsVisible = !this.isControlsVisible;
+        });
         if (this.isControlsVisible) {
           this.showControlsTemporarily();
         } else {
@@ -905,6 +1056,8 @@ struct LivePlayerPage {
       } else if (this.rotationMode === 'portrait') {
         orientation = window.Orientation.PORTRAIT;
       } else {
+        // ⭐ 用 AUTO_ROTATION_LANDSCAPE 而不是 LANDSCAPE：
+        //    锁定横屏后仍允许在「左横/右横」两个方向间随重力翻转
         orientation = window.Orientation.AUTO_ROTATION_LANDSCAPE;
       }
       await this.mw.setPreferredOrientation(orientation);
@@ -928,17 +1081,262 @@ struct LivePlayerPage {
 
   // ==================== build ====================
 
+  /** 顶栏：返回 + LIVE/在线 + 标题（横竖屏共用，安全区已转 vp） */
+  @Builder
+  buildTopBar() {
+    Row({ space: 10 }) {
+      // 返回：与其它选项同一套毛玻璃材质 / 42vp 高度
+      Column() {
+        Image($r('app.media.return_453'))
+          .width(20).height(20).fillColor('#FFFFFF')
+      }
+      .width(42).height(42)
+      .justifyContent(FlexAlign.Center)
+      .alignItems(HorizontalAlign.Center)
+      .backgroundColor('rgba(15,16,21,0.82)')
+      .backgroundBlurStyle(BlurStyle.COMPONENT_THICK, { colorMode: ThemeColorMode.DARK })
+      .border({ width: 1, color: 'rgba(255,255,255,0.10)' })
+      .borderRadius(21)
+      .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.9 })
+      .hitTestBehavior(HitTestMode.Block)
+      .onClick(() => this.goBack())
+
+      Row({ space: 4 }) {
+        Circle().width(6).height(6).fill('#FF3355')
+        Text('LIVE').fontSize(12).fontColor('#FF3355').fontWeight(FontWeight.Bold)
+        if (this.online > 0) {
+          Text(`${this.online}`).fontSize(11.5).fontColor('rgba(255,255,255,0.72)')
+        }
+      }
+      .alignItems(VerticalAlign.Center)
+
+      Text(this.title)
+        .fontSize(14)
+        .fontColor('#FFFFFF')
+        .fontWeight(FontWeight.Medium)
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .layoutWeight(1)
+
+      // 右上：画质 + 后台播放（胶囊）
+      Row() {
+        this.dockQualityBtn()
+        this.bgpBtn()
+      }
+      .height(42)
+      .padding({ left: 4, right: 4 })
+      .backgroundColor('rgba(15,16,21,0.82)')
+      .backgroundBlurStyle(BlurStyle.COMPONENT_THICK, { colorMode: ThemeColorMode.DARK })
+      .border({ width: 1, color: 'rgba(255,255,255,0.10)' })
+      .borderRadius(21)
+      .alignItems(VerticalAlign.Center)
+    }
+    .width('100%')
+    .height(this.safeTop + 52)
+    .padding({ left: 16, right: 16, top: this.safeTop + 8 })
+    .alignItems(VerticalAlign.Center)
+    .linearGradient({
+      direction: GradientDirection.Bottom,
+      colors: [['rgba(0,0,0,0.55)', 0.0], ['rgba(0,0,0,0)', 1.0]]
+    })
+    .position({ x: 0, y: 0 })
+    .translate({ y: this.isControlsVisible ? 0 : -8 })
+  }
+
+  /** Dock 图标按钮（方案 B 的基础单元） */
+  @Builder
+  dockIconBtn(icon: Resource, highlighted: boolean, onTap: () => void) {
+    Row() {
+      Image(icon)
+        .width(18).height(18)
+        .fillColor(highlighted ? '#8BE0FF' : '#FFFFFF')
+    }
+    .width(34).height(34)
+    .justifyContent(FlexAlign.Center)
+    .backgroundColor(highlighted ? '#2E00AEEC' : '#00000000')
+    .borderRadius(17)
+    .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.9 })
+    .hitTestBehavior(HitTestMode.Block)
+    .onClick(onTap)
+  }
+
+  /**
+   * ⚠️ @Builder 的参数是**按值传递**：把 this.isPlaying / this.ratioLabel() 当参数传进来，
+   *    状态变化后按钮不会更新（实测 Dock 的「适应」会一直停在首帧）。
+   *    所以动态按钮一律做成无参 Builder，直接在内部读状态。
+   */
+  @Builder
+  dockPlayBtn() {
+    Row() {
+      Image(this.isPlaying ? $r('app.media.ic_public_pause') : $r('app.media.ic_public_play'))
+        .width(18).height(18).fillColor('#FFFFFF')
+    }
+    .width(34).height(34)
+    .justifyContent(FlexAlign.Center)
+    .borderRadius(17)
+    .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.9 })
+    .hitTestBehavior(HitTestMode.Block)
+    .onClick(() => this.togglePlayPause())
+  }
+
+  @Builder
+  dockRatioBtn() {
+    Row({ space: 6 }) {
+      Image($r('app.media.chicun')).width(18).height(18).fillColor('#FFFFFF')
+      Text(this.ratioLabel()).fontSize(12.5).fontColor('#FFFFFF').maxLines(1)
+    }
+    .height(34)
+    .padding({ left: 9, right: 9 })
+    .borderRadius(17)
+    .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.95 })
+    .hitTestBehavior(HitTestMode.Block)
+    .onClick(() => this.cycleAspectRatio())
+  }
+
+  @Builder
+  dockQualityBtn() {
+    Row({ space: 6 }) {
+      Image($r('app.media.hd_24px_rounded')).width(18).height(18).fillColor('#FFFFFF')
+      Text(this.qualityLabel()).fontSize(12.5).fontColor('#FFFFFF').maxLines(1)
+    }
+    .height(34)
+    .padding({ left: 9, right: 9 })
+    .borderRadius(17)
+    .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.95 })
+    .hitTestBehavior(HitTestMode.Block)
+    .onClick(() => this.openQualityPicker())
+  }
+
+  /** 旋转锁定：表面按钮（自由 ↔ 锁定），竖横屏共用 */
+  @Builder
+  lockBtn() {
+    Row({ space: 6 }) {
+      Image(this.rotationLockIcon()).width(17).height(17).fillColor('#FFFFFF')
+      Text(this.rotationMode === 'auto' ? '自由' : '锁定')
+        .fontSize(12.5).fontColor('#FFFFFF').maxLines(1)
+    }
+    .height(34)
+    .padding({ left: 9, right: 9 })
+    .borderRadius(17)
+    .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.95 })
+    .hitTestBehavior(HitTestMode.Block)
+    .onClick(() => this.toggleRotation())
+  }
+
+  /** 后台播放：右上角胶囊里的开关态按钮 */
+  @Builder
+  bgpBtn() {
+    Row({ space: 6 }) {
+      Image($r('app.media.headphones_fill'))
+        .width(17).height(17)
+        .fillColor(this.bgp ? '#8BE0FF' : '#FFFFFF')
+      Text('后台')
+        .fontSize(12.5)
+        .fontColor(this.bgp ? '#8BE0FF' : '#FFFFFF')
+        .maxLines(1)
+    }
+    .height(34)
+    .padding({ left: 9, right: 9 })
+    .backgroundColor(this.bgp ? '#2E00AEEC' : '#00000000')
+    .borderRadius(17)
+    .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.95 })
+    .hitTestBehavior(HitTestMode.Block)
+    .onClick(() => this.setBackgroundPlayback(!this.bgp))
+  }
+
+  /** 横屏：左右两个胶囊（中间留空，露出更多画面） */
+  @Builder
+  buildLandscapeDock() {
+    Row() {
+      // 左胶囊：播放 / 刷新
+      Row() {
+        this.dockPlayBtn()
+        this.dockIconBtn($r('app.media.reset_70'), false, () => this.resetLive())
+      }
+      .height(42)
+      .padding({ left: 4, right: 4 })
+      .backgroundColor('rgba(15,16,21,0.82)')
+      .backgroundBlurStyle(BlurStyle.COMPONENT_THICK, { colorMode: ThemeColorMode.DARK })
+      .border({ width: 1, color: 'rgba(255,255,255,0.10)' })
+      .borderRadius(21)
+      .alignItems(VerticalAlign.Center)
+
+      Blank()
+
+      // 右胶囊：比例 + 旋转锁定
+      Row() {
+        this.dockRatioBtn()
+        this.lockBtn()
+      }
+      .height(42)
+      .padding({ left: 4, right: 4 })
+      .backgroundColor('rgba(15,16,21,0.82)')
+      .backgroundBlurStyle(BlurStyle.COMPONENT_THICK, { colorMode: ThemeColorMode.DARK })
+      .border({ width: 1, color: 'rgba(255,255,255,0.10)' })
+      .borderRadius(21)
+      .alignItems(VerticalAlign.Center)
+    }
+    .width('100%')
+    .height(42)
+    .padding({ left: 12, right: 12 })
+    .alignItems(VerticalAlign.Center)
+    .position({ x: 0, y: this.winH - 42 - this.dockBottomPad() })
+    .translate({ y: this.isControlsVisible ? 0 : 8 })
+  }
+
+  /** 竖屏：选项压到视频显示区四角（方案 B 竖屏落位） */
+  @Builder
+  buildPortraitControls() {
+    // ⚠️ 不用 Stack + align：实测该组合在本页不生效，三个控件会全堆到视频中心。
+    //    改用 Column + Blank 的常规流式布局，位置只由 padding / Blank 决定。
+    Column() {
+      Blank()
+
+      // 底部：播放/刷新在左，比例/旋转锁在右
+      Row() {
+        Row({ space: 2 }) {
+          this.dockPlayBtn()
+          this.dockIconBtn($r('app.media.reset_70'), false, () => this.resetLive())
+        }
+        .padding(4)
+        .backgroundColor('rgba(15,16,21,0.82)')
+        .backgroundBlurStyle(BlurStyle.COMPONENT_THICK, { colorMode: ThemeColorMode.DARK })
+        .border({ width: 1, color: 'rgba(255,255,255,0.10)' })
+        .borderRadius(21)
+
+        Blank()
+
+        Row({ space: 2 }) {
+          this.dockRatioBtn()
+          this.lockBtn()
+        }
+        .padding(4)
+        .backgroundColor('rgba(15,16,21,0.82)')
+        .backgroundBlurStyle(BlurStyle.COMPONENT_THICK, { colorMode: ThemeColorMode.DARK })
+        .border({ width: 1, color: 'rgba(255,255,255,0.10)' })
+        .borderRadius(21)
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Bottom)
+      .translate({ y: this.isControlsVisible ? 0 : 8 })
+    }
+    .width('100%')
+    .height('100%')
+    .padding({ left: 10, right: 10, bottom: 10 })
+    .position({ x: this.videoOverlayRect().x, y: this.videoOverlayRect().y })
+    .width(this.videoOverlayRect().w)
+    .height(this.videoOverlayRect().h)
+  }
+
   build() {
     Stack() {
-      // 视频画面层（Stack 居中，画面比例由 ratioMode 决定，黑边填充）
+      // ⭐ 视频层：XComponent 常驻，旋转只改几何不重建
       Stack() {
         if (this.videoSrc) {
           XComponent({ id: 'live_video_xc', type: XComponentType.SURFACE, controller: this.xc })
-            .width(this.videoW())
-            .height(this.videoH())
-        } else {
-          // 无视频源时黑色背景
-          Column().width('100%').height('100%').backgroundColor('#000000')
+            .width(this.videoRect().w)
+            .height(this.videoRect().h)
+            .position({ x: this.videoRect().x, y: this.videoRect().y })
         }
       }
       .width('100%')
@@ -969,177 +1367,21 @@ struct LivePlayerPage {
         .backgroundColor('rgba(0,0,0,0.7)')
       }
 
-      // ⭐ 控制栏（内联，不经过自定义组件边界）
+      // ⭐ 控制层：竖屏四角落位 / 横屏分段 Dock 共用同一个常驻层
       if (!this.loading && this.videoSrc) {
-        Column() {
-          // 顶栏
-          Stack() {
-            // 标题绝对居中
-            Text(`${this.title}`)
-              .fontSize(16).fontColor('#FFFFFF')
-              .fontWeight(FontWeight.Medium)
-              .textAlign(TextAlign.Center)
-              .textOverflow({ overflow: TextOverflow.Ellipsis })
-              .maxLines(1)
-              .width('100%')
-              .padding({ left: 80, right: 80 })
-
-            // 左右控制行（布局流 + 自动高度，避免竖屏右侧超出屏幕）
-            Row() {
-              // 左：返回 + LIVE
-              Row() {
-                // 返回按钮（带圆形遮罩）
-                Column() {
-                  Image($r('app.media.return_453'))
-.width(30).height(30).fillColor('#FFFFFF')
-                }
-                .width(40).height(40)
-                .justifyContent(FlexAlign.Center)
-                .alignItems(HorizontalAlign.Center)
-                .backgroundColor('rgba(0,0,0,0.45)')
-                .border({ width: 1.5, color: '#FFFFFF' })
-                .borderRadius(20)
-                .onClick(() => this.goBack())
-
-                // LIVE 标识
-                Row({ space: 4 }) {
-                  Circle().width(8).height(8).fill('#FF3355')
-                  Text('LIVE').fontSize(12).fontColor('#FF3355').fontWeight(FontWeight.Bold)
-                  if (this.online > 0) {
-                    Text(`${this.online}`).fontSize(12).fontColor('#FF9999')
-                  }
-                }
-                .margin({ left: 8 })
-                .alignItems(VerticalAlign.Center)
-              }
-              .alignItems(VerticalAlign.Center)
-
-              Blank().layoutWeight(1)
-
-              // 右：后台播放 + 画质
-              Row({ space: 8 }) {
-                // 后台播放按钮（参考普通播放器：图标随状态切换 nosign/headphones）
-                Stack() {
-                  Button() {
-                    Row() {
-                      Image($r(this.bgp ? 'app.media.nosign' : 'app.media.headphones_fill'))
-                        .width(18).height(18).fillColor('#FFFFFF')
-                      Text(this.bgp ? '取消后台' : '后台播放')
-                        .fontSize(12).fontColor('#FFFFFF').margin({ left: 4 })
-                    }.alignItems(VerticalAlign.Center)
-                  }
-                  .height(40)
-                  .padding({ left: 10, right: 12 })
-                  .backgroundColor(Color.Transparent)
-                  .borderRadius(0).borderWidth(0)
-                  .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.9 })
-                  .onClick(() => {
-                    this.toggleBackgroundPlayback();
-                    this.showControlsTemporarily();
-                  })
-                }
-                .height(40)
-                .backgroundColor('rgba(0,0,0,0.45)')
-                .borderRadius(20)
-                .border({ width: 1.5, color: '#FFFFFF' })
-
-                // 画质按钮
-                Column() {
-                  Image($r('app.media.ic_settings_quality'))
-                    .width(20).height(20).fillColor('#FFFFFF')
-                }
-                .width(44).height(44)
-                .justifyContent(FlexAlign.Center)
-                .alignItems(HorizontalAlign.Center)
-                .backgroundColor('rgba(0,0,0,0.45)')
-                .border({ width: 1.5, color: '#FFFFFF' })
-                .borderRadius(22)
-                .onClick(() => {
-                  this.showQualityPicker = true;
-                  this.showControlsTemporarily();
-                })
-              }
-              .alignItems(VerticalAlign.Center)
-            }
-            .width('100%')
-            .padding({ left: 16, right: 16, top: this.safeTop + 8, bottom: 8 })
-            .alignItems(VerticalAlign.Center)
-
+        Stack() {
+          if (!this.isLandscape) {
+            this.buildPortraitControls()
           }
-          .width('100%')
-
-          Blank().layoutWeight(1)
-
-          // 底栏 — 按钮靠左，整体靠下
-          Row() {
-            // 播放/暂停按钮
-            Column() {
-              Image(this.isPlaying ? $r('app.media.ic_public_pause') : $r('app.media.ic_public_play'))
-                .width(24).height(24).fillColor('#FFFFFF')
-            }
-            .width(40).height(40)
-            .justifyContent(FlexAlign.Center)
-            .alignItems(HorizontalAlign.Center)
-            .backgroundColor('rgba(0,0,0,0.45)')
-            .border({ width: 1.5, color: '#FFFFFF' })
-            .borderRadius(20)
-            .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.9 })
-            .onClick(() => this.togglePlayPause())
-
-            // 重置直播按钮
-            Column() {
-              Image($r('app.media.reset_70'))
-                .width(36).height(36).fillColor('#FFFFFF')
-            }
-            .width(40).height(40)
-            .justifyContent(FlexAlign.Center)
-            .alignItems(HorizontalAlign.Center)
-            .backgroundColor('rgba(0,0,0,0.45)')
-            .border({ width: 1.5, color: '#FFFFFF' })
-            .borderRadius(20)
-            .margin({ left: 12 })
-            .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.9 })
-            .onClick(() => this.resetLive())
-
-            // 旋转锁定按钮（带圆形遮罩）
-            Column() {
-              Image(this.getRotationIcon())
-                .width(24).height(24).fillColor('#FFFFFF')
-            }
-            .width(40).height(40)
-            .justifyContent(FlexAlign.Center)
-            .alignItems(HorizontalAlign.Center)
-            .backgroundColor('rgba(0,0,0,0.45)')
-            .border({ width: 1.5, color: '#FFFFFF' })
-            .borderRadius(20)
-            .margin({ left: 12 })
-            .onClick(() => this.toggleRotation())
-
-            Blank().layoutWeight(1)
-
-            // 比例按钮（循环切换画面比例）
-            Column() {
-              Text('比例').fontSize(12).fontColor('#FFFFFF')
-            }
-            .height(40)
-            .padding({ left: 14, right: 14 })
-            .justifyContent(FlexAlign.Center)
-            .alignItems(HorizontalAlign.Center)
-            .backgroundColor('rgba(0,0,0,0.45)')
-            .border({ width: 1.5, color: '#FFFFFF' })
-            .borderRadius(20)
-            .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.9 })
-            .onClick(() => this.cycleAspectRatio())
+          this.buildTopBar()
+          if (this.isLandscape) {
+            this.buildLandscapeDock()
           }
-          .width('100%').padding({ left: 16, right: 16, bottom: this.safeBottom + 15 })
-          .alignItems(VerticalAlign.Center)
         }
-        .width('100%').height('100%')
-        .justifyContent(FlexAlign.SpaceBetween)
-        .transition(TransitionEffect.OPACITY.animation({ duration: 300, curve: Curve.EaseInOut }))
+        .width('100%')
+        .height('100%')
         .opacity(this.isControlsVisible ? 1 : 0)
         .hitTestBehavior(this.isControlsVisible ? HitTestMode.Default : HitTestMode.None)
-
       }
 
       // 手势提示
@@ -1156,9 +1398,31 @@ struct LivePlayerPage {
         .zIndex(10)
       }
 
-      // 画质小弹窗：系统推荐的小菜单样式（磨砂毛玻璃 + 圆角 + 阴影，锚定画质按钮下方）
+      // 底部提示（比例/后台播放等轻提示）
+      if (this.showBottomHint) {
+        Row() {
+          Row({ space: 6 }) {
+            if (this.bottomHintImage !== undefined) {
+              Image(this.bottomHintImage as ResourceStr).width(16).height(16).fillColor('#FFFFFF')
+            }
+            Text(this.bottomHintText).fontSize(12).fontColor('#FFFFFF').maxLines(1)
+          }
+          .height(34)
+          .padding({ left: 12, right: 14 })
+          .backgroundColor('rgba(0,0,0,0.66)')
+          .borderRadius(17)
+        }
+        .width('100%')
+        .justifyContent(FlexAlign.Center)
+        .position({
+          x: 0,
+          y: this.winH - (this.isLandscape ? 72 : Math.max(16, this.safeBottom + 12)) - 34
+        })
+        .zIndex(20)
+      }
+
+      // 画质菜单（横屏在 Dock 上方 / 竖屏在画质胶囊下方）
       if (this.showQualityPicker) {
-        // 透明遮罩 — 点击弹窗外区域关闭
         Column()
           .width('100%')
           .height('100%')
@@ -1169,7 +1433,6 @@ struct LivePlayerPage {
             this.showControlsTemporarily();
           })
 
-        // 小菜单
         Column() {
           Row() {
             Text('画质选择').fontSize(14).fontColor($r('app.color.live_quality_text_title')).fontWeight(FontWeight.Bold)
@@ -1177,7 +1440,6 @@ struct LivePlayerPage {
           .width('100%')
           .padding({ left: 16, right: 16, top: 12, bottom: 8 })
 
-          // ⭐ 两列网格 + 分割线
           ForEach(this.qualityGroups(), (group: QualityOption[], gi: number) => {
             Column() {
               Row() {
@@ -1232,10 +1494,10 @@ struct LivePlayerPage {
         .width(216)
         .borderRadius(14)
         .backgroundColor(Color.Transparent)
-        .backgroundBlurStyle(BlurStyle.COMPONENT_THICK)
+        .backgroundBlurStyle(BlurStyle.COMPONENT_THICK, { colorMode: ThemeColorMode.DARK })
         .clip(true)
         .shadow({ radius: 24, color: '#40000000', offsetY: 6 })
-        .position({ right: 16, top: 60 })
+        .position({ x: this.qualityMenuX(), y: this.qualityMenuY() })
         .zIndex(30)
         .transition(TransitionEffect.asymmetric(
           TransitionEffect.scale({ x: 0.9, y: 0.9, centerX: '100%', centerY: '0%' })
@@ -1244,12 +1506,12 @@ struct LivePlayerPage {
           TransitionEffect.opacity(0).animation({ duration: 180, curve: Curve.EaseIn })
         ))
       }
-
     }
     .width('100%')
     .height('100%')
     .backgroundColor('#000000')
     .clip(true)
     .onTouch(this.onVT)
+    .onAreaChange(this.onRootArea)
   }
 }
