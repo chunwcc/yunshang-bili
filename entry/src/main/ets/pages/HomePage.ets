@@ -455,7 +455,9 @@ export struct HomePage {
     const mediaQuery = this.getUIContext().getMediaQuery();
     this.landscapeListener = mediaQuery.matchMediaSync('(orientation: landscape)');
     this.landscapeListener.on('change', async (result: mediaquery.MediaQueryResult) => {
-      if (!this.isPageActive) return;
+      // ⭐ 被二级页（播放页）盖住时不重排：旋转时 WaterFlow 全量重排会抢主线程，
+      //    直接表现为播放页全屏动画掉帧（日志里能看到后台的 item size change）
+      if (!this.isPageActive || (AppStorage.get<boolean>('mainPageHidden') ?? false)) return;
       const newIsLandscape = result.matches;
       if (this.isLandscape !== newIsLandscape) {
         logInfo(`[HomePage] 方向变化: ${newIsLandscape ? '横屏' : '竖屏'}`);
@@ -643,6 +645,8 @@ export struct HomePage {
     if (mainWindow && !this.windowSizeChangeListener) {
       this.mainWindowRef = mainWindow;
       this.windowSizeChangeListener = async (size: window.Size) => {
+        // 被二级页盖住时不响应窗口尺寸变化（旋转时后台重排是掉帧的主要来源之一）
+        if (!this.isPageActive || (AppStorage.get<boolean>('mainPageHidden') ?? false)) return;
         // 同步 isLandscape，确保 updatePaddings / recalcCarouselHeight 用正确的 topPadding
         const newIsLandscape = size.width > size.height;
         if (newIsLandscape !== this.isLandscape) {
