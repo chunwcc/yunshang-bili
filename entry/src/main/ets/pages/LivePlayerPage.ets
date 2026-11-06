@@ -113,6 +113,10 @@ struct LivePlayerPage {
   private danmakuCtl: LiveDanmakuController | null = null;
   private danmakuCtx: CanvasRenderingContext2D = new CanvasRenderingContext2D(new RenderingContextSettings(true));
   private chatScroller: Scroller = new Scroller();
+  /** 弹幕画布尺寸防抖（切比例/全屏动画期间避免逐帧重建轨道） */
+  private danmakuResizeW: number = 0;
+  private danmakuResizeH: number = 0;
+  private danmakuResizeTimer: number = -1;
   private sendCooldownUntil: number = 0;
   private gestureBlocked_: boolean = false;
   // 亮度/音量起始值
@@ -499,9 +503,16 @@ struct LivePlayerPage {
   /** ⭐ 循环切换：适应 → 裁剪 → 拉伸 */
   private cycleAspectRatio(): void {
     this.tick(10);
-    if (this.ratioMode === 'fit') { this.ratioMode = 'crop'; }
-    else if (this.ratioMode === 'crop') { this.ratioMode = 'fill'; }
-    else { this.ratioMode = 'fit'; }
+    // 视频矩形由 ratioMode 派生，用 animateTo 包住切换才有点播那边"自然变形"的观感
+    this.getUIContext().animateTo({ duration: 260, curve: Curve.EaseInOut }, () => {
+      if (this.ratioMode === 'fit') {
+        this.ratioMode = 'crop';
+      } else if (this.ratioMode === 'crop') {
+        this.ratioMode = 'fill';
+      } else {
+        this.ratioMode = 'fit';
+      }
+    });
     this.showBottomHintTemporarily(`画面比例：${this.ratioLabel()}`);
     this.showControlsTemporarily();
   }
@@ -704,6 +715,10 @@ struct LivePlayerPage {
   }
 
   aboutToDisappear() {
+    if (this.danmakuResizeTimer !== -1) {
+      clearTimeout(this.danmakuResizeTimer);
+      this.danmakuResizeTimer = -1;
+    }
     if (this.emoteAnimator) {
       this.emoteAnimator.cancel();
       this.emoteAnimator = null;
@@ -900,23 +915,24 @@ struct LivePlayerPage {
   }
 
   private handlePlayError(): void {
+    // ⭐ 直播 HLS 报 404 / IO Resource Not Found 基本都是 m3u8 里**已过期的分段**。
+    //    旧实现要 retryCount > 2 才作废缓存 ⇒ 前两次拿同一个坏地址重试，白等 2 秒多。
+    //    现在任何播放错误都先作废流地址，第一次重试就用新地址，恢复从 ~4.2s 降到 ~1.5s。
+    invalidateCachedStreamUrl(this.roomId);
     if (this.retryCount < this.maxRetries) {
       this.retryCount++;
       this.loading = true;
       this.errorMsg = '';
-      const shouldRefresh: boolean = this.retryCount > 2;
-      if (shouldRefresh) {
-        invalidateCachedStreamUrl(this.roomId);
-      }
       // 重试超过 3 次后尝试降画质
       if (this.retryCount >= 3 && this.availableQualities.length > 0) {
         this.downgradeQuality();
       }
+      const delay: number = this.retryCount === 1 ? 300 : 1000;
       if (this.retryTimer !== -1) clearTimeout(this.retryTimer);
       this.retryTimer = setTimeout(() => {
         this.retryTimer = -1;
-        this.startPlay(shouldRefresh);
-      }, 1000);
+        this.startPlay(true);
+      }, delay);
     } else {
       this.retryCount = 0;
       this.loading = true;
@@ -1513,10 +1529,10 @@ struct LivePlayerPage {
     }
     const next: LiveMessage[] = this.liveMessages.slice();
     next.push(msg);
-    // 批量裁剪：攒到 140 条再一次性丢到 100，避免到上限后每条新消息都动一次数组
-    // （每次 splice 都会让列表重排，频繁裁剪是隐形卡顿源）
-    if (next.length > 140) {
-      next.splice(0, next.length - 100);
+    // 只保留最近 25 条（原来 100 行全部参与布局，Scroll+Column 非懒加载时开销明显）。
+    // 仍按批裁剪：攒到 35 条再一次性丢到 25，避免到上限后每条新消息都动一次数组。
+    if (next.length > 35) {
+      next.splice(0, next.length - 25);
     }
     this.liveMessages = next;
     this.scrollChatToBottom();
@@ -1992,7 +2008,7 @@ struct LivePlayerPage {
           })
           Row({ space: 2 }) {
             this.dockPlayBtn()
-            this.dockIconBtn($r('app.media.ic_settings_rotation'), false, () => this.resetLive())
+            this.dockIconBtn($r('app.media.StreamlinePlumpRotateLeftSolid'), false, () => this.resetLive())
             this.danmakuBtn()
           }
           .width(114)
@@ -2032,6 +2048,9 @@ struct LivePlayerPage {
     .width('100%')
     .height('100%')
     .padding({ left: 0, right: 0, bottom: 0 })
+    // ⚠️ 必须是 Start：Column 默认水平居中，会把"加宽 4vp 的行"居中溢出，
+    //    再叠加 translate(-2) 就变成左边 10 / 右边 12（用户反馈左右边距不一致）
+    .alignItems(HorizontalAlign.Start)
     // ⚠️ 用「视频区域」整宽，不用 videoOverlayRect()：
     //    竖屏看 9:16 流时显示矩形只有 243vp 宽，而左右两颗胶囊合计约 272vp，
     //    塞进去会互相重叠（真机反馈「竖屏控制栏位置有问题」）。黑边也属于视频区。
@@ -2493,7 +2512,20 @@ struct LivePlayerPage {
             const w: number = n.width as number;
             const h: number = n.height as number;
             if (w > 0 && h > 0) {
-              this.danmakuCtl?.setSize(w, h);
+              // ⭐ 防抖：切比例/全屏是 260ms 动画，期间 area 每帧都变，
+              //    直接 setSize 会每帧 updateGeometry + 重播弹幕（画面会闪）。
+              //    只在尺寸稳定后再应用一次。
+              this.danmakuResizeW = w;
+              this.danmakuResizeH = h;
+              if (this.danmakuResizeTimer !== -1) {
+                clearTimeout(this.danmakuResizeTimer);
+              }
+              this.danmakuResizeTimer = setTimeout(() => {
+                this.danmakuResizeTimer = -1;
+                if (this.danmakuResizeW > 0 && this.danmakuResizeH > 0) {
+                  this.danmakuCtl?.setSize(this.danmakuResizeW, this.danmakuResizeH);
+                }
+              }, 140);
             }
           })
       }

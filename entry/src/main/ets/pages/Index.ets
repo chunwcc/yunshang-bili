@@ -206,7 +206,13 @@ struct Index {
     }
   }
 
+  /** 主页面被二级页（播放页等）盖住时置位：子页面据此跳过旋转重排等重活 */
+  onPageHide() {
+    AppStorage.setOrCreate<boolean>('mainPageHidden', true);
+  }
+
   onPageShow() {
+    AppStorage.setOrCreate<boolean>('mainPageHidden', false);
     const goHome = AppStorage.get<boolean>('goHome') ?? false;
     if (goHome) {
       AppStorage.setOrCreate<boolean>('goHome', false);
