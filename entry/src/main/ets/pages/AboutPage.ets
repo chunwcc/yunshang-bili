@@ -16,8 +16,8 @@ import {
 struct AboutPage {
   @StorageLink('isDarkMode') isDarkMode: boolean = false;
   @StorageLink('statusBarHeight') statusBarHeight: number = 0;
-  private readonly appVersion: string = '1.3.7';
-  private readonly appBuild: string = '1000022';
+  private readonly appVersion: string = '1.3.8';
+  private readonly appBuild: string = '1000023';
 
   /** 入场动画：标题与各卡片依次浮起（复用首页卡片入场那套弹簧曲线） */
   @State titleShown: boolean = false;
