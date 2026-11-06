@@ -533,9 +533,7 @@ struct LivePlayerPage {
   /** 全屏时返回/侧滑：先退全屏，不退出直播间 */
   onBackPress(): boolean {
     if (this.fsMode) {
-      this.fsMode = false;
-      this.isControlsVisible = true;
-      this.showControlsTemporarily();
+      this.setFullscreen(false);
       return true;
     }
     return false;
@@ -608,8 +606,8 @@ struct LivePlayerPage {
         // ⭐ 聊天栏跟随方向：竖屏 → 横屏必须自动展开（否则只剩视频、评论区不出现）；
         //    横屏 → 竖屏收起，避免竖屏残留右侧分栏。
         this.chatOpen = this.isLandscape;
-        // 旋转后退出全屏，回到「竖屏=视频+聊天 / 横屏=分栏」的标准布局
-        this.fsMode = false;
+        // ⚠️ 不再在这里退出全屏：全屏时按视频比例转屏是预期行为，退出全屏会打断它
+
         // 旋转后系统栏可能被系统恢复，重新进入沉浸式并补读安全区
         this.mw?.setWindowSystemBarEnable([]).catch(() => {});
         setTimeout(() => {
@@ -1543,18 +1541,52 @@ struct LivePlayerPage {
     this.showControlsTemporarily();
   }
 
-  private toggleFullscreen(): void {
-    this.tick(12);
-    this.fsMode = !this.fsMode;
-    // 横屏：全屏期间聊天栏隐藏，退出全屏后回到分栏（chatOpen 保持不变）
+  /** 进/出全屏的唯一入口：切状态 + 按视频比例转屏 / 退出时恢复旋转策略 */
+  private setFullscreen(on: boolean): void {
+    if (this.fsMode === on) {
+      return;
+    }
+    this.fsMode = on;
+    this.applyFullscreenOrientation();
     this.isControlsVisible = true;
     this.showControlsTemporarily();
+  }
+
+  private toggleFullscreen(): void {
+    this.tick(12);
+    this.setFullscreen(!this.fsMode);
+  }
+
+  /**
+   * 全屏按视频比例转屏（B 站行为）：
+   *  - 横流（ar >= 1）→ 全屏横屏；竖流 → 全屏竖屏；
+   *  - 用户手动锁过方向时不强制转向，以锁定为准；
+   *  - 退出全屏恢复 rotationMode（自动/锁定）。
+   */
+  private async applyFullscreenOrientation(): Promise<void> {
+    if (!this.mw) {
+      return;
+    }
+    try {
+      if (this.rotationMode !== 'auto' || !this.fsMode) {
+        await this.applyRotationMode();
+        return;
+      }
+      const ar: number = this.streamAR > 0 ? this.streamAR : 16 / 9;
+      const orientation: window.Orientation = ar >= 1
+        ? window.Orientation.AUTO_ROTATION_LANDSCAPE
+        : window.Orientation.PORTRAIT;
+      await this.mw.setPreferredOrientation(orientation);
+      logInfo(`[LivePlayer] 全屏按视频比例转屏: ar=${ar.toFixed(2)} → ${ar >= 1 ? '横屏' : '竖屏'}`);
+    } catch (_e) {
+      logError(`[LivePlayer] 全屏转屏失败: ${_e}`);
+    }
   }
 
   private toggleChat(): void {
     if (this.isLandscape && this.fsMode) {
       // 全屏状态点聊天：退出全屏并恢复分栏
-      this.fsMode = false;
+      this.setFullscreen(false);
       this.chatOpen = true;
     } else {
       this.chatOpen = !this.chatOpen;
