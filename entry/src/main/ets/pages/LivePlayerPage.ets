@@ -424,7 +424,8 @@ struct LivePlayerPage {
         h: this.winH - gap * 2
       };
     }
-    const top: number = this.topBarPad() + 48;
+    // 顶栏浮在画面上，但视频仍要避开状态栏：从安全区下方 12vp 起
+    const top: number = this.safeTop + 12;
     const ar: number = this.streamAR > 0 ? this.streamAR : 16 / 9;
     const fitH: number = Math.min((this.winW - gap * 2) / ar, this.winH * 0.52);
     return { x: gap, y: top, w: this.winW - gap * 2, h: Math.max(120, fitH) };
@@ -1413,6 +1414,7 @@ struct LivePlayerPage {
 
   /** 切换旋转模式：自动旋转 ↔ 锁定当前方向 */
   private toggleRotation(): void {
+    this.tick(12);
     if (this.rotationMode === 'auto') {
       // 锁定到当前物理方向
       this.rotationMode = this.isWindowLandscape() ? 'landscape' : 'portrait';
@@ -1513,8 +1515,8 @@ struct LivePlayerPage {
     }
     const next: LiveMessage[] = this.liveMessages.slice();
     next.push(msg);
-    if (next.length > 200) {
-      next.splice(0, next.length - 200);
+    if (next.length > 120) {
+      next.splice(0, next.length - 120);
     }
     this.liveMessages = next;
     this.scrollChatToBottom();
@@ -1890,7 +1892,7 @@ struct LivePlayerPage {
         })
         Row() {
           this.dockPlayBtn()
-          this.dockIconBtn($r('app.media.reset_70'), false, () => this.resetLive())
+          this.dockIconBtn($r('app.media.StreamlinePlumpRotateLeftSolid'), false, () => this.resetLive())
           this.danmakuBtn()
         }
         .width(110)
@@ -1950,7 +1952,7 @@ struct LivePlayerPage {
           })
           Row({ space: 2 }) {
             this.dockPlayBtn()
-            this.dockIconBtn($r('app.media.reset_70'), false, () => this.resetLive())
+            this.dockIconBtn($r('app.media.ic_settings_rotation'), false, () => this.resetLive())
             this.danmakuBtn()
           }
           .width(114)
@@ -2124,7 +2126,7 @@ struct LivePlayerPage {
       Column({ space: 6 }) {
         ForEach(this.liveMessages, (m: LiveMessage, index: number) => {
           this.chatRow(m)
-        }, (m: LiveMessage, index: number) => `${index}_${m.ts}_${m.id}_${this.emoteReady ? 1 : 0}`)
+        }, (m: LiveMessage, index: number) => `${m.seq}_${this.emoteReady ? 1 : 0}`)
       }
       .width('100%')
       // ⚠️ 必须占满视口：消息少时 scrollEdge(Edge.Bottom) 会把内容整体下推

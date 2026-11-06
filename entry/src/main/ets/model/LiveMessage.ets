@@ -10,6 +10,9 @@ export enum LiveMsgType {
 }
 
 export class LiveMessage {
+  /** 全局自增序号：列表 ForEach 的稳定 key（不用 index，避免每条新消息都全量重建） */
+  private static seqCounter: number = 0;
+  seq: number = 0;
   id: string = '';
   type: LiveMsgType = LiveMsgType.DANMAKU;
   uid: number = 0;
@@ -32,5 +35,7 @@ export class LiveMessage {
   constructor(type: LiveMsgType = LiveMsgType.DANMAKU) {
     this.type = type;
     this.ts = Date.now();
+    LiveMessage.seqCounter++;
+    this.seq = LiveMessage.seqCounter;
   }
 }
