@@ -16,6 +16,9 @@ import { sendLiveDanmaku } from '../api/LiveDanmakuApi';
 import { extractSessdataFromCookie } from '../api/FeedbackService';
 import { ChatEmote, ChatTextSegment, ChatEmoteItem, ChatEmotePackage } from '../utils/ChatEmote';
 import { themeRgba } from '../utils/ThemeColor';
+import { HdsCircleBackButton } from '../components/infra/HdsCircleBackButton';
+import { HdsGlassBar } from '../components/infra/HdsGlassBar';
+import { MaterialUtil } from '../utils/MaterialUtil';
 
 interface QualityOption {
   qn: number;
@@ -41,6 +44,8 @@ struct LivePlayerPage {
   @State roomCover: string = ''; // 直播间封面（实况窗/通知中心媒体封面）
   /** 主播头像 */
   @State upFace: string = '';
+  /** 主播胶囊玻璃宽度（按昵称实测宽度算，HdsGlassBar 只吃具体数值） */
+  @State anchorBarW: number = 120;
   /** 直播间主题背景（H5 room_info.app_background，铺在视频黑边后面） */
   @State appBg: string = '';
   @State loading: boolean = true;
@@ -95,6 +100,8 @@ struct LivePlayerPage {
   @State showEmote: boolean = false;
   /** 表情面板动画高度（0=收起；Animator 逐帧驱动，列表同步让位） */
   @State emoteH: number = 0;
+  /** 表情面板走 bindPopup + systemMaterial（真材质设备），老机退回页内圆角卡片 */
+  private emoteUsePopup: boolean = MaterialUtil.available();
   private emoteAnimator: AnimatorResult | null = null;
   /** 当前选中的表情分类 */
   @State emotePkgIdx: number = 0;
@@ -206,12 +213,53 @@ struct LivePlayerPage {
   }
 
   /** 开/关表情面板（展开时收起键盘，避免输入法把面板顶掉） */
+  /** 输入行总宽（玻璃胶囊 + 发送圆钮） */
+  private chatInputW(): number {
+    if (this.isLandscape) {
+      return Math.max(140, this.chatPanelW() - 20);
+    }
+    return Math.max(160, this.winW - 24);
+  }
+
+  /** 输入胶囊玻璃宽度：总宽减去发送圆钮（48 容器 + 8 间距）与自身容器余量 4 */
+  private chatInputPillW(): number {
+    return Math.max(120, this.chatInputW() - 54);
+  }
+
+  /** 发送：独立沉浸光感圆钮（胶囊右侧） */
+  @Builder
+  chatSendCircle() {
+    Stack({ alignContent: Alignment.Center }) {
+      HdsGlassBar({
+        barWidth: 44,
+        barHeight: 44,
+        contentPadding: 1,
+        barBottomMargin: 1,
+        hitThrough: true,
+        lightColor: '#66FFFFFF'
+      })
+      Row() {
+        Image($r('app.media.send_out'))
+          .width(20).height(20)
+          .fillColor(this.chatHasContent ? this.customThemeColor : 'rgba(255,255,255,0.3)')
+      }
+      .width(44).height(44)
+      .justifyContent(FlexAlign.Center)
+      .borderRadius(22)
+      .hitTestBehavior(HitTestMode.Block)
+      .onClick(() => {
+        this.sendChat();
+      })
+    }
+  }
+
   /** 表情面板展开高度（内容：tabs 40 + 网格 138 + 内边距 12 + 外边距 6） */
   private emotePanelH(): number {
     return 196;
   }
 
   private toggleEmotePanel(): void {
+    this.tick(10);
     const open: boolean = !this.showEmote;
     this.showEmote = open;
     if (open) {
@@ -219,7 +267,47 @@ struct LivePlayerPage {
         this.getUIContext().getFocusController().clearFocus();
       } catch (_e) {}
     }
+    if (this.emoteUsePopup) {
+      // 弹层自带出入场动画与系统材质，页内面板保持收起
+      this.emoteH = 0;
+      return;
+    }
     this.animateEmoteH(open ? this.emotePanelH() : 0);
+  }
+
+  /** 表情面板弹层选项：Top 方向浮在输入框上方，点外部自动收起 */
+  private emotePopupOpts(): CustomPopupOptions {
+    const opts: CustomPopupOptions = {
+      builder: (): void => { this.emotePopupBuilder(); },
+      placement: Placement.Top,
+      offset: { x: 0, y: -8 },
+      enableArrow: false,
+      autoCancel: true,
+      mask: false,
+      radius: 22,
+      onStateChange: (e) => {
+        if (!e.isVisible) {
+          this.showEmote = false;
+        }
+      }
+    } as CustomPopupOptions;
+    if (this.emoteUsePopup) {
+      opts.colorMode = AnchoredColorMode.FOLLOW_TARGET;
+      opts.systemMaterial = MaterialUtil.emoteMaterial();
+    }
+    return opts;
+  }
+
+  /** 弹层内容：与页内面板同一套内容（材质/圆角由弹层负责） */
+  @Builder
+  emotePopupBuilder() {
+    Column() {
+      this.chatEmotePanel()
+    }
+    .width(this.chatInputW())
+    .height(this.emotePanelH())
+    .borderRadius(22)
+    .clip(true)
   }
 
   /** 逐帧驱动 emoteH（与评论输入栏同款，避免与键盘/布局动画打架） */
@@ -254,6 +342,24 @@ struct LivePlayerPage {
       this.emoteAnimator = null;
     };
     this.emoteAnimator.play();
+  }
+
+  /** 按昵称实测宽度算主播胶囊宽度（左距 5 + 头像 28 + 间距 7 + 文本 + 右距 14） */
+  private updateAnchorBarW(): void {
+    const name: string = this.uname || '主播';
+    let textW: number = name.length * 13;
+    try {
+      const size = this.getUIContext().getMeasureUtils().measureTextSize({
+        textContent: name,
+        fontSize: 13
+      });
+      const w: number = this.getUIContext().px2vp(size.width as number);
+      if (w > 0) {
+        textW = w;
+      }
+    } catch (_e) {}
+    textW = Math.min(170, Math.max(26, textW));
+    this.anchorBarW = 5 + 28 + 7 + textW + 14;
   }
 
   /** 表情按 3 行切列（横滑用） */
@@ -303,13 +409,20 @@ struct LivePlayerPage {
     if (this.fsMode) {
       return { x: 0, y: 0, w: this.winW, h: this.winH };
     }
+    // 与屏幕边缘至少留 2vp（贴边观感太挤）
+    const gap: number = 4;
     if (this.isLandscape) {
-      return { x: 0, y: 0, w: Math.max(120, this.winW - this.chatSplitInset()), h: this.winH };
+      return {
+        x: gap,
+        y: gap,
+        w: Math.max(120, this.winW - this.chatSplitInset() - gap * 2),
+        h: this.winH - gap * 2
+      };
     }
     const top: number = this.safeTop + 52;
     const ar: number = this.streamAR > 0 ? this.streamAR : 16 / 9;
-    const fitH: number = Math.min(this.winW / ar, this.winH * 0.52);
-    return { x: 0, y: top, w: this.winW, h: Math.max(120, fitH) };
+    const fitH: number = Math.min((this.winW - gap * 2) / ar, this.winH * 0.52);
+    return { x: gap, y: top, w: this.winW - gap * 2, h: Math.max(120, fitH) };
   }
 
   /** ⭐ 视频显示矩形：旋转/切画质/换比例都由它派生，不再读 display 快照 */
@@ -379,6 +492,7 @@ struct LivePlayerPage {
 
   /** ⭐ 循环切换：适应 → 裁剪 → 拉伸 */
   private cycleAspectRatio(): void {
+    this.tick(10);
     if (this.ratioMode === 'fit') { this.ratioMode = 'crop'; }
     else if (this.ratioMode === 'crop') { this.ratioMode = 'fill'; }
     else { this.ratioMode = 'fit'; }
@@ -388,6 +502,7 @@ struct LivePlayerPage {
 
   /** ⭐ 重置直播：释放播放器并强制重新拉流 */
   private resetLive(): void {
+    this.tick(14);
     this.showBottomHintTemporarily('已重置直播');
     this.releasePlayer();
     this.showControlsTemporarily();
@@ -396,6 +511,7 @@ struct LivePlayerPage {
 
   /** ⭐ 播放/暂停切换 */
   private togglePlayPause(): void {
+    this.tick(12);
     try {
       if (this.av) {
         if (this.av.state === 'playing') {
@@ -674,6 +790,7 @@ struct LivePlayerPage {
         }
         if (h5.anchorName) {
           this.uname = h5.anchorName;
+          this.updateAnchorBarW();
         }
         if (h5.anchorFace) {
           this.upFace = h5.anchorFace;
@@ -929,6 +1046,7 @@ struct LivePlayerPage {
 
   /** 切换画质 */
   private switchQuality(qn: number): void {
+    this.tick(10);
     this.currentQn = qn;
     this.loading = true;
     this.errorMsg = '';
@@ -954,6 +1072,7 @@ struct LivePlayerPage {
 
   private setBackgroundPlayback(on: boolean): void {
     if (this.bgp === on) { return; }
+    this.tick(10);
     this.bgp = on;
     AppStorage.set<boolean>('bgp', on);
     try {
@@ -987,6 +1106,7 @@ struct LivePlayerPage {
   // ==================== 选项菜单 ====================
 
   private openQualityPicker(): void {
+    this.tick(10);
     this.showQualityPicker = true;
     this.holdControls();
   }
@@ -1041,7 +1161,7 @@ struct LivePlayerPage {
           this.isControlsVisible = false;
         });
       }
-    }, 5000);
+    }, 10000);
   }
 
   private showBottomHintTemporarily(txt: string, img?: ResourceStr): void {
@@ -1132,6 +1252,13 @@ struct LivePlayerPage {
     VibrateUtils.vibratePreset('haptic.notification.trigger');
   }
 
+  /** 轻触反馈（10ms）：按钮点按、面板开合这类高频操作用 */
+  private tick(ms: number = 10): void {
+    try {
+      VibrateUtils.vibrateTime(ms);
+    } catch (_e) {}
+  }
+
   private fireHaptic(duration: number): void {
     VibrateUtils.vibrateTime(duration);
   }
@@ -1166,23 +1293,6 @@ struct LivePlayerPage {
     this.la_ = false;
     this.dtp_ = false;
 
-    // 双击检测
-    if (this.dt_ !== -1) {
-      clearTimeout(this.dt_);
-      this.dt_ = -1;
-      this.dtp_ = true;
-      // 双击 = 播放/暂停（此前只置了 dtp_ 却没有任何动作，双击等于"点了个寂寞"）
-      if (!this.gestureBlocked_) {
-        this.togglePlayPause();
-        this.showControlsTemporarily();
-      }
-      return;
-    }
-
-    this.dt_ = setTimeout(() => {
-      this.dt_ = -1;
-    }, 300);
-
     // 长按定时器
     this.lt_ = setTimeout(() => {
       if (!this.ml_) {
@@ -1206,9 +1316,12 @@ struct LivePlayerPage {
     if (this.gm_ === '') {
       if (adx > 25 || ady > 25) {
         if (ady > adx) {
-          // 垂直滑动：左30% = 亮度，右70% = 音量
-          const centerX = (this.winW > 0 ? this.winW : 360) / 2;
-          if (t.windowX < centerX) {
+          // 垂直滑动：**按视频区域**左右对半分（左=亮度，右=音量）。
+          // ⚠️ 不能用 winW/2：横屏分栏时视频区只到 winW-chatPanelW，
+          //    按屏宽切会让音量区只剩 100 多 vp（用户实测"音量区域太小"）。
+          const area: VideoRect = this.videoAreaRect();
+          const splitX: number = area.x + area.w / 2;
+          if (t.windowX < splitX) {
             this.gm_ = 'brightness';
           } else {
             this.gm_ = 'volume';
@@ -1411,6 +1524,7 @@ struct LivePlayerPage {
   }
 
   private toggleDanmaku(): void {
+    this.tick(10);
     this.danmakuOn = !this.danmakuOn;
     if (this.danmakuCtl) {
       this.danmakuCtl.setEnabled(this.danmakuOn);
@@ -1423,6 +1537,7 @@ struct LivePlayerPage {
   }
 
   private toggleFullscreen(): void {
+    this.tick(12);
     this.fsMode = !this.fsMode;
     // 横屏：全屏期间聊天栏隐藏，退出全屏后回到分栏（chatOpen 保持不变）
     this.isControlsVisible = true;
@@ -1525,6 +1640,7 @@ struct LivePlayerPage {
     try {
       const res = await sendLiveDanmaku(this.roomId, text);
       if (res.ok) {
+        this.triggerHaptic();
         this.clearChatInput();
         this.sendCooldownUntil = Date.now() + 2000;
         const msg = new LiveMessage(LiveMsgType.DANMAKU);
@@ -1554,64 +1670,84 @@ struct LivePlayerPage {
   /** 顶栏：返回 + LIVE/在线 + 标题（横竖屏共用，安全区已转 vp） */
   @Builder
   buildTopBar() {
-    Row({ space: 10 }) {
-      // 返回：与其它选项同一套毛玻璃材质 / 42vp 高度
-      Column() {
-        Image($r('app.media.return_453'))
-          .width(20).height(20).fillColor('#FFFFFF')
-      }
-      .width(42).height(42)
-      .justifyContent(FlexAlign.Center)
-      .alignItems(HorizontalAlign.Center)
-      .backgroundColor('rgba(15,16,21,0.82)')
-      .backgroundBlurStyle(BlurStyle.COMPONENT_THICK, { colorMode: ThemeColorMode.DARK })
-      .border({ width: 1, color: 'rgba(255,255,255,0.10)' })
-      .borderRadius(21)
-      .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.9 })
-      .hitTestBehavior(HitTestMode.Block)
-      .onClick(() => this.goBack())
-
-      // 主播头像 + 名称（胶囊；不再显示房间标题 / LIVE / 在线人数）
-      Row({ space: 7 }) {
-        if (this.upFace) {
-          Image(this.upFace)
-            .width(28).height(28)
-            .borderRadius(14)
-            .objectFit(ImageFit.Cover)
-        } else {
-          Circle().width(28).height(28).fill('rgba(255,255,255,0.18)')
+    Row({ space: 2 }) {
+      // 返回：沉浸光感圆钮（与右侧胶囊同高：40 玻璃 + 1cp = 44 容器，保证在同一水平线）
+      Stack({ alignContent: Alignment.Center }) {
+        HdsGlassBar({
+          barWidth: 40,
+          barHeight: 40,
+          contentPadding: 1,
+          barBottomMargin: 1,
+          hitThrough: true,
+          lightColor: this.customThemeColor
+        })
+        Row() {
+          Image($r('app.media.return_453'))
+            .width(20).height(20)
+            .fillColor('#FFFFFF')
         }
-        Text(this.uname || '主播')
-          .fontSize(13)
-          .fontColor('#FFFFFF')
-          .fontWeight(FontWeight.Medium)
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .constraintSize({ maxWidth: 170 })
+        .width(40).height(40)
+        .justifyContent(FlexAlign.Center)
+        .borderRadius(20)
+        .hitTestBehavior(HitTestMode.Block)
+        .onClick(() => this.goBack())
       }
-      .height(42)
-      .padding({ left: 5, right: 14 })
-      .backgroundColor('rgba(15,16,21,0.82)')
-      .backgroundBlurStyle(BlurStyle.COMPONENT_THICK, { colorMode: ThemeColorMode.DARK })
-      .border({ width: 1, color: 'rgba(255,255,255,0.10)' })
-      .borderRadius(21)
-      .alignItems(VerticalAlign.Center)
+
+      // 主播头像 + 名称（沉浸光感胶囊：玻璃由 HdsTabs 系统材质绘制，内容叠在上面）
+      Stack({ alignContent: Alignment.Center }) {
+        HdsGlassBar({
+          barWidth: this.anchorBarW,
+          barHeight: 40,
+          contentPadding: 1,
+          barBottomMargin: 1,
+          hitThrough: true,
+          lightColor: this.customThemeColor
+        })
+        Row({ space: 7 }) {
+          if (this.upFace) {
+            Image(this.upFace)
+              .width(28).height(28)
+              .borderRadius(14)
+              .objectFit(ImageFit.Cover)
+          } else {
+            Circle().width(28).height(28).fill('rgba(255,255,255,0.18)')
+          }
+          Text(this.uname || '主播')
+            .fontSize(13)
+            .fontColor('#FFFFFF')
+            .fontWeight(FontWeight.Medium)
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .constraintSize({ maxWidth: 170 })
+        }
+        .width(this.anchorBarW)
+        .height(40)
+        .padding({ left: 5, right: 14 })
+        .alignItems(VerticalAlign.Center)
+      }
 
       Blank()
 
-      // 右上：画质 + 后台播放（胶囊）
-      Row() {
-        this.dockQualityBtn()
-        this.bgpBtn()
+      // 右上：画质 + 后台播放（沉浸光感胶囊）
+      Stack({ alignContent: Alignment.Center }) {
+        HdsGlassBar({
+          barWidth: 76,
+          barHeight: 40,
+          contentPadding: 1,
+          barBottomMargin: 1,
+          hitThrough: true,
+          lightColor: this.customThemeColor
+        })
+        Row() {
+          this.dockQualityBtn()
+          this.bgpBtn()
+        }
+        .width(76)
+        .height(40)
+        .padding({ left: 4, right: 4 })
+        .alignItems(VerticalAlign.Center)
       }
-      .height(42)
-      .padding({ left: 4, right: 4 })
       .margin({ right: this.chatSplitInset() })
-      .backgroundColor('rgba(15,16,21,0.82)')
-      .backgroundBlurStyle(BlurStyle.COMPONENT_THICK, { colorMode: ThemeColorMode.DARK })
-      .border({ width: 1, color: 'rgba(255,255,255,0.10)' })
-      .borderRadius(21)
-      .alignItems(VerticalAlign.Center)
     }
     .width('100%')
     .height(this.safeTop + 52)
@@ -1643,7 +1779,7 @@ struct LivePlayerPage {
     }
     .width(34).height(34)
     .justifyContent(FlexAlign.Center)
-    .backgroundColor(highlighted ? themeRgba(this.customThemeColor, 0.20) : '#00000000')
+    .backgroundColor(highlighted ? 'rgba(255,255,255,0.18)' : '#00000000')
     .borderRadius(17)
     .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.9 })
     .hitTestBehavior(HitTestMode.Block)
@@ -1703,12 +1839,12 @@ struct LivePlayerPage {
     Row() {
       Image(this.rotationLockIcon())
         .width(18).height(18)
-        .fillColor(this.rotationMode === 'auto' ? '#FFFFFF' : this.customThemeColor)
+        .fillColor('#FFFFFF')
     }
     .width(34)
     .height(34)
     .justifyContent(FlexAlign.Center)
-    .backgroundColor(this.rotationMode === 'auto' ? '#00000000' : themeRgba(this.customThemeColor, 0.20))
+    .backgroundColor(this.rotationMode === 'auto' ? '#00000000' : 'rgba(255,255,255,0.18)')
     .borderRadius(17)
     .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.95 })
     .hitTestBehavior(HitTestMode.Block)
@@ -1721,12 +1857,12 @@ struct LivePlayerPage {
     Row() {
       Image($r('app.media.headphones_fill'))
         .width(18).height(18)
-        .fillColor(this.bgp ? this.customThemeColor : '#FFFFFF')
+        .fillColor(this.bgp ? '#FFFFFF' : 'rgba(255,255,255,0.3)')
     }
     .width(34)
     .height(34)
     .justifyContent(FlexAlign.Center)
-    .backgroundColor(this.bgp ? themeRgba(this.customThemeColor, 0.20) : '#00000000')
+    .backgroundColor('#00000000')
     .borderRadius(17)
     .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.95 })
     .hitTestBehavior(HitTestMode.Block)
@@ -1737,35 +1873,49 @@ struct LivePlayerPage {
   @Builder
   buildLandscapeDock() {
     Row() {
-      // 左胶囊：播放 / 刷新 / 弹幕
-      Row() {
-        this.dockPlayBtn()
-        this.dockIconBtn($r('app.media.reset_70'), false, () => this.resetLive())
-        this.danmakuBtn()
+      // 左胶囊：播放 / 刷新 / 弹幕（沉浸光感玻璃）
+      Stack({ alignContent: Alignment.Center }) {
+        HdsGlassBar({
+          barWidth: 110,
+          barHeight: 42,
+          contentPadding: 1,
+          barBottomMargin: 1,
+          hitThrough: true,
+          lightColor: this.customThemeColor
+        })
+        Row() {
+          this.dockPlayBtn()
+          this.dockIconBtn($r('app.media.reset_70'), false, () => this.resetLive())
+          this.danmakuBtn()
+        }
+        .width(110)
+        .height(42)
+        .padding({ left: 4, right: 4 })
+        .alignItems(VerticalAlign.Center)
       }
-      .height(42)
-      .padding({ left: 4, right: 4 })
-      .backgroundColor('rgba(15,16,21,0.82)')
-      .backgroundBlurStyle(BlurStyle.COMPONENT_THICK, { colorMode: ThemeColorMode.DARK })
-      .border({ width: 1, color: 'rgba(255,255,255,0.10)' })
-      .borderRadius(21)
-      .alignItems(VerticalAlign.Center)
 
       Blank()
 
-      // 右胶囊：比例 / 旋转锁定 / 全屏 / 聊天
-      Row() {
-        this.dockRatioBtn()
-        this.lockBtn()
-        this.fsBtn()
+      // 右胶囊：比例 / 旋转锁定 / 全屏（沉浸光感玻璃）
+      Stack({ alignContent: Alignment.Center }) {
+        HdsGlassBar({
+          barWidth: 110,
+          barHeight: 42,
+          contentPadding: 1,
+          barBottomMargin: 1,
+          hitThrough: true,
+          lightColor: this.customThemeColor
+        })
+        Row() {
+          this.dockRatioBtn()
+          this.lockBtn()
+          this.fsBtn()
+        }
+        .width(110)
+        .height(42)
+        .padding({ left: 4, right: 4 })
+        .alignItems(VerticalAlign.Center)
       }
-      .height(42)
-      .padding({ left: 4, right: 4 })
-      .backgroundColor('rgba(15,16,21,0.82)')
-      .backgroundBlurStyle(BlurStyle.COMPONENT_THICK, { colorMode: ThemeColorMode.DARK })
-      .border({ width: 1, color: 'rgba(255,255,255,0.10)' })
-      .borderRadius(21)
-      .alignItems(VerticalAlign.Center)
     }
     .width('100%')
     .height(42)
@@ -1784,29 +1934,47 @@ struct LivePlayerPage {
 
       // 底部：播放/刷新在左，比例/旋转锁在右
       Row() {
-        Row({ space: 2 }) {
-          this.dockPlayBtn()
-          this.dockIconBtn($r('app.media.reset_70'), false, () => this.resetLive())
-          this.danmakuBtn()
+        Stack({ alignContent: Alignment.Center }) {
+          HdsGlassBar({
+            barWidth: 114,
+            barHeight: 42,
+            contentPadding: 1,
+            barBottomMargin: 1,
+            hitThrough: true,
+            lightColor: this.customThemeColor
+          })
+          Row({ space: 2 }) {
+            this.dockPlayBtn()
+            this.dockIconBtn($r('app.media.reset_70'), false, () => this.resetLive())
+            this.danmakuBtn()
+          }
+          .width(114)
+          .height(42)
+          .padding(4)
+          .alignItems(VerticalAlign.Center)
         }
-        .padding(4)
-        .backgroundColor('rgba(15,16,21,0.82)')
-        .backgroundBlurStyle(BlurStyle.COMPONENT_THICK, { colorMode: ThemeColorMode.DARK })
-        .border({ width: 1, color: 'rgba(255,255,255,0.10)' })
-        .borderRadius(21)
 
         Blank()
 
-        Row({ space: 2 }) {
-          this.dockRatioBtn()
-          this.lockBtn()
-          this.fsBtn()
+        Stack({ alignContent: Alignment.Center }) {
+          HdsGlassBar({
+            barWidth: 114,
+            barHeight: 42,
+            contentPadding: 1,
+            barBottomMargin: 1,
+            hitThrough: true,
+            lightColor: this.customThemeColor
+          })
+          Row({ space: 2 }) {
+            this.dockRatioBtn()
+            this.lockBtn()
+            this.fsBtn()
+          }
+          .width(114)
+          .height(42)
+          .padding(4)
+          .alignItems(VerticalAlign.Center)
         }
-        .padding(4)
-        .backgroundColor('rgba(15,16,21,0.82)')
-        .backgroundBlurStyle(BlurStyle.COMPONENT_THICK, { colorMode: ThemeColorMode.DARK })
-        .border({ width: 1, color: 'rgba(255,255,255,0.10)' })
-        .borderRadius(21)
       }
       .width('100%')
       .alignItems(VerticalAlign.Bottom)
@@ -1829,12 +1997,12 @@ struct LivePlayerPage {
     Row() {
       Image($r('app.media.chat_bubble_text_square_solid'))
         .width(18).height(18)
-        .fillColor(this.danmakuOn ? this.customThemeColor : '#FFFFFF')
+        .fillColor(this.danmakuOn ? '#FFFFFF' : 'rgba(255,255,255,0.3)')
     }
     .width(34)
     .height(34)
     .justifyContent(FlexAlign.Center)
-    .backgroundColor(this.danmakuOn ? themeRgba(this.customThemeColor, 0.20) : '#00000000')
+    .backgroundColor('#00000000')
     .borderRadius(17)
     .hitTestBehavior(HitTestMode.Block)
     .onClick(() => this.toggleDanmaku())
@@ -1845,12 +2013,12 @@ struct LivePlayerPage {
     Row() {
       Image($r('app.media.message_on_message'))
         .width(18).height(18)
-        .fillColor(this.chatOpen ? this.customThemeColor : '#FFFFFF')
+        .fillColor('#FFFFFF')
     }
     .width(34)
     .height(34)
     .justifyContent(FlexAlign.Center)
-    .backgroundColor(this.chatOpen ? themeRgba(this.customThemeColor, 0.20) : '#00000000')
+    .backgroundColor(this.chatOpen ? 'rgba(255,255,255,0.18)' : '#00000000')
     .borderRadius(17)
     .hitTestBehavior(HitTestMode.Block)
     .onClick(() => this.toggleChat())
@@ -1968,12 +2136,21 @@ struct LivePlayerPage {
    */
   @Builder
   chatInputCapsule(h: number) {
-    Row({ space: 4 }) {
+    Stack({ alignContent: Alignment.Center }) {
+      HdsGlassBar({
+        barWidth: this.chatInputPillW(),
+        barHeight: h,
+        contentPadding: 1,
+        barBottomMargin: 1,
+        hitThrough: true,
+        lightColor: this.customThemeColor
+      })
+      Row({ space: 4 }) {
       // 表情按钮：开/关表情面板（同时收起键盘，否则面板会被输入法挤掉）
       Row() {
         Image($r('app.media.expression'))
           .width(22).height(22)
-          .fillColor(this.showEmote ? '#FF8CAE' : '#FFFFFF')
+          .fillColor(this.showEmote ? this.customThemeColor : '#FFFFFF')
       }
       .width(34).height(34)
       .justifyContent(FlexAlign.Center)
@@ -2027,22 +2204,12 @@ struct LivePlayerPage {
       .layoutWeight(1)
       .height(h)
 
-      Row() {
-        this.chatSendBtn(h - 10)
       }
-      .margin({ right: 5 })
+      .width(this.chatInputPillW())
+      .height(h)
+      .padding({ left: 2, right: 2 })
+      .alignItems(VerticalAlign.Center)
     }
-    .width('100%')
-    .height(h)
-    .padding({ left: 2, right: 2 })
-    .alignItems(VerticalAlign.Center)
-    // ⭐ 与私信 / 评论输入栏同一套「自绘玻璃」配方（glassBg + 1.5vp glassStroke）：
-    //    沉浸光感（systemMaterial）只在 Navigation 标题栏/弹窗等系统作用域真渲染，
-    //    普通内容区会退化成纯色底，所以这里不走 ImmersiveLightWrapper。
-    .backgroundColor('rgba(255,255,255,0.15)')
-    .borderRadius(h / 2)
-    .border({ width: 1.5, color: '#33FFFFFF' })
-    .clip(true)
   }
 
   @Builder
@@ -2066,25 +2233,29 @@ struct LivePlayerPage {
   /** 竖屏：贴底输入胶囊（键盘弹出时整体上移） */
   @Builder
   chatInputBar() {
-    Row() {
+    Row({ space: 2 }) {
       this.chatInputCapsule(44)
+      this.chatSendCircle()
     }
     .width('100%')
     .height(this.chatInputH())
     .padding({ left: 12, right: 12, bottom: this.chatBottomPad() })
     .alignItems(VerticalAlign.Center)
+    .bindPopup(this.emoteUsePopup && this.showEmote, this.emotePopupOpts())
   }
 
   /** 横屏：悬浮输入胶囊（不占布局高度，列表可以从上到下铺满） */
   @Builder
   chatInputFloat() {
-    Row() {
+    Row({ space: 2 }) {
       this.chatInputCapsule(44)
+      this.chatSendCircle()
     }
     .width('100%')
     .padding({ left: 10, right: 10 })
     .margin({ bottom: this.chatFloatPad() })
     .alignItems(VerticalAlign.Center)
+    .bindPopup(this.emoteUsePopup && this.showEmote, this.emotePopupOpts())
   }
 
   /** 连接中的轻提示（不占高度，覆盖在列表顶部） */
@@ -2135,6 +2306,7 @@ struct LivePlayerPage {
               .borderRadius(9)
               .hitTestBehavior(HitTestMode.Block)
               .onClick(() => {
+                this.tick(8);
                 this.emotePkgIdx = idx;
               })
             }, (pkg: ChatEmotePackage) => pkg.id.toString())
@@ -2159,6 +2331,7 @@ struct LivePlayerPage {
                   .justifyContent(FlexAlign.Center)
                   .alignItems(HorizontalAlign.Center)
                   .onClick(() => {
+                    this.tick(8);
                     this.insertChatEmote(emote);
                   })
                 }, (emote: ChatEmoteItem) => emote.text)
@@ -2178,35 +2351,69 @@ struct LivePlayerPage {
       }
       .width('100%')
       .padding({ top: 6, bottom: 6 })
-      // 与其它表情面板一致：圆角卡片包裹
-      .backgroundColor('rgba(18,20,26,0.92)')
+      // 真材质设备走弹层（底色由系统材质负责）；老机才画圆角卡片
+      .backgroundColor(this.emoteUsePopup ? Color.Transparent : 'rgba(18,20,26,0.92)')
       .borderRadius(16)
-      .border({ width: 1, color: 'rgba(255,255,255,0.10)' })
+      .border({ width: this.emoteUsePopup ? 0 : 1, color: 'rgba(255,255,255,0.10)' })
       .clip(true)
     }
     .width('100%')
     .padding({ left: 8, right: 8, bottom: 6 })
   }
 
-  build() {
-    Stack() {
-      // ⭐ 直播间背景（PiliPlus 同款）：room_info.app_background 铺满整窗、60% 不透明度，
-      //    让竖屏流两侧的黑边不再是纯黑；全屏时隐藏。
-      if (this.appBg && !this.fsMode) {
-        Image(this.appBg)
+  /** 页面背景：有自定义背景用背景；否则用封面做毛玻璃 + 自下而上的深色渐变 */
+  @Builder
+  livePageBg() {
+    if (this.appBg) {
+      Image(this.appBg)
+        .width('100%')
+        .height('100%')
+        .objectFit(ImageFit.Cover)
+        .hitTestBehavior(HitTestMode.None)
+    } else if (this.roomCover) {
+      Stack() {
+        Image(this.roomCover)
           .width('100%')
           .height('100%')
           .objectFit(ImageFit.Cover)
-          .hitTestBehavior(HitTestMode.None)
+          .blur(36)
+        // 底深顶透：保证底部评论/输入框区域文字可读
+        Column()
+          .width('100%')
+          .height('100%')
+          .linearGradient({
+            direction: GradientDirection.Bottom,
+            colors: [
+              ['rgba(0,0,0,0.20)', 0.0],
+              ['rgba(0,0,0,0.55)', 0.55],
+              ['rgba(0,0,0,0.85)', 1.0]
+            ]
+          })
+      }
+      .width('100%')
+      .height('100%')
+      .clip(true)
+      .hitTestBehavior(HitTestMode.None)
+    }
+  }
+
+  build() {
+    Stack() {
+      // ⭐ 直播间背景：优先 H5 的 app_background；
+      //    没有的话用直播间封面 + 毛玻璃 + 底深顶透的渐变兜底（普通房间大多没配背景）
+      if (!this.fsMode) {
+        this.livePageBg()
       }
 
       // ⭐ 视频层：XComponent 常驻，旋转只改几何不重建
       //    外层按「视频区域」裁切：竖屏视频只出现在顶栏下方，不会盖住聊天区
       Stack() {
         if (this.videoSrc) {
-          XComponent({ id: 'live_video_xc', type: XComponentType.SURFACE, controller: this.xc })
+          XComponent({ id: 'live_video_xc', type: XComponentType.TEXTURE, controller: this.xc })
             .width(this.videoRect().w)
             .height(this.videoRect().h)
+            // 圆角必须加在画面本体上：容器只裁「视频区域」，画面在区域内留黑边时四角还是直角
+            .borderRadius(this.fsMode ? 0 : 16)
             .position({
               x: this.videoRect().x - this.videoAreaRect().x,
               y: this.videoRect().y - this.videoAreaRect().y
@@ -2218,6 +2425,8 @@ struct LivePlayerPage {
       .position({ x: this.videoAreaRect().x, y: this.videoAreaRect().y })
       // 透明：让直播间背景透到视频两侧的黑边里
       .backgroundColor(Color.Transparent)
+      // 播放区域小圆角（全屏时贴边，不加）
+      .borderRadius(this.fsMode ? 0 : 16)
       .clip(true)
 
       // 直播弹幕层（不挡手势；开关切换时重建 Canvas）
