@@ -196,7 +196,7 @@ struct LivePlayerPage {
    * （实测输入框 [1986,2084] 内点击无法聚焦），所以留 60vp。
    */
   private chatBottomPad(): number {
-    return Math.max(12, this.safeBottom - 12);
+    return 12;
   }
 
   /** 竖屏聊天输入栏高度（含底部安全区） */
@@ -209,10 +209,15 @@ struct LivePlayerPage {
    * 40vp 是 Dock 实测可点的最小留白（比竖屏常驻输入栏省 20vp）。
    */
   private chatFloatPad(): number {
-    return Math.max(12, this.safeBottom - 12);
+    return 12;
   }
 
   /** 开/关表情面板（展开时收起键盘，避免输入法把面板顶掉） */
+  /** 顶栏距屏幕上沿的间距：竖屏让开状态栏，横屏系统栏已隐藏 → 直接 12 */
+  private topBarPad(): number {
+    return this.isLandscape ? 12 : this.safeTop + 12;
+  }
+
   /** 输入行总宽（玻璃胶囊 + 发送圆钮） */
   private chatInputW(): number {
     if (this.isLandscape) {
@@ -409,8 +414,8 @@ struct LivePlayerPage {
     if (this.fsMode) {
       return { x: 0, y: 0, w: this.winW, h: this.winH };
     }
-    // 与屏幕边缘至少留 2vp（贴边观感太挤）
-    const gap: number = 4;
+    // 统一屏幕边距 12vp（与评论区/输入框左右边距对齐）
+    const gap: number = 12;
     if (this.isLandscape) {
       return {
         x: gap,
@@ -419,7 +424,7 @@ struct LivePlayerPage {
         h: this.winH - gap * 2
       };
     }
-    const top: number = this.safeTop + 52;
+    const top: number = this.topBarPad() + 48;
     const ar: number = this.streamAR > 0 ? this.streamAR : 16 / 9;
     const fitH: number = Math.min((this.winW - gap * 2) / ar, this.winH * 0.52);
     return { x: gap, y: top, w: this.winW - gap * 2, h: Math.max(120, fitH) };
@@ -1138,7 +1143,7 @@ struct LivePlayerPage {
    *    所以 Dock 必须离屏幕底部至少 40vp。
    */
   private dockBottomPad(): number {
-    return Math.max(40, this.safeBottom + 12);
+    return 12;
   }
 
   private qualityMenuX(): number {
@@ -1674,8 +1679,8 @@ struct LivePlayerPage {
       // 返回：沉浸光感圆钮（与右侧胶囊同高：40 玻璃 + 1cp = 44 容器，保证在同一水平线）
       Stack({ alignContent: Alignment.Center }) {
         HdsGlassBar({
-          barWidth: 40,
-          barHeight: 40,
+          barWidth: 44,
+          barHeight: 44,
           contentPadding: 1,
           barBottomMargin: 1,
           hitThrough: true,
@@ -1686,9 +1691,9 @@ struct LivePlayerPage {
             .width(20).height(20)
             .fillColor('#FFFFFF')
         }
-        .width(40).height(40)
+        .width(44).height(44)
         .justifyContent(FlexAlign.Center)
-        .borderRadius(20)
+        .borderRadius(22)
         .hitTestBehavior(HitTestMode.Block)
         .onClick(() => this.goBack())
       }
@@ -1697,7 +1702,7 @@ struct LivePlayerPage {
       Stack({ alignContent: Alignment.Center }) {
         HdsGlassBar({
           barWidth: this.anchorBarW,
-          barHeight: 40,
+          barHeight: 44,
           contentPadding: 1,
           barBottomMargin: 1,
           hitThrough: true,
@@ -1721,7 +1726,7 @@ struct LivePlayerPage {
             .constraintSize({ maxWidth: 170 })
         }
         .width(this.anchorBarW)
-        .height(40)
+        .height(44)
         .padding({ left: 5, right: 14 })
         .alignItems(VerticalAlign.Center)
       }
@@ -1732,7 +1737,7 @@ struct LivePlayerPage {
       Stack({ alignContent: Alignment.Center }) {
         HdsGlassBar({
           barWidth: 76,
-          barHeight: 40,
+          barHeight: 44,
           contentPadding: 1,
           barBottomMargin: 1,
           hitThrough: true,
@@ -1743,15 +1748,15 @@ struct LivePlayerPage {
           this.bgpBtn()
         }
         .width(76)
-        .height(40)
+        .height(44)
         .padding({ left: 4, right: 4 })
         .alignItems(VerticalAlign.Center)
       }
       .margin({ right: this.chatSplitInset() })
     }
     .width('100%')
-    .height(this.safeTop + 52)
-    .padding({ left: 12, right: 12, top: this.safeTop + 8 })
+    .height(this.topBarPad() + 48)
+    .padding({ left: 10, right: 10, top: this.topBarPad() })
     .alignItems(VerticalAlign.Center)
     .linearGradient({
       direction: GradientDirection.Bottom,
@@ -1877,7 +1882,7 @@ struct LivePlayerPage {
       Stack({ alignContent: Alignment.Center }) {
         HdsGlassBar({
           barWidth: 110,
-          barHeight: 42,
+          barHeight: 44,
           contentPadding: 1,
           barBottomMargin: 1,
           hitThrough: true,
@@ -1889,7 +1894,7 @@ struct LivePlayerPage {
           this.danmakuBtn()
         }
         .width(110)
-        .height(42)
+        .height(44)
         .padding({ left: 4, right: 4 })
         .alignItems(VerticalAlign.Center)
       }
@@ -1900,7 +1905,7 @@ struct LivePlayerPage {
       Stack({ alignContent: Alignment.Center }) {
         HdsGlassBar({
           barWidth: 110,
-          barHeight: 42,
+          barHeight: 44,
           contentPadding: 1,
           barBottomMargin: 1,
           hitThrough: true,
@@ -1912,16 +1917,16 @@ struct LivePlayerPage {
           this.fsBtn()
         }
         .width(110)
-        .height(42)
+        .height(44)
         .padding({ left: 4, right: 4 })
         .alignItems(VerticalAlign.Center)
       }
     }
     .width('100%')
-    .height(42)
-    .padding({ left: 12, right: 12 + this.chatSplitInset() })
+    .height(48)
+    .padding({ left: 10, right: 10 + this.chatSplitInset() })
     .alignItems(VerticalAlign.Center)
-    .position({ x: 0, y: this.winH - 42 - this.dockBottomPad() })
+    .position({ x: 0, y: this.winH - 48 - this.dockBottomPad() })
   }
 
   /** 竖屏：选项压到视频显示区四角（方案 B 竖屏落位） */
@@ -1937,7 +1942,7 @@ struct LivePlayerPage {
         Stack({ alignContent: Alignment.Center }) {
           HdsGlassBar({
             barWidth: 114,
-            barHeight: 42,
+            barHeight: 44,
             contentPadding: 1,
             barBottomMargin: 1,
             hitThrough: true,
@@ -1949,7 +1954,7 @@ struct LivePlayerPage {
             this.danmakuBtn()
           }
           .width(114)
-          .height(42)
+          .height(44)
           .padding(4)
           .alignItems(VerticalAlign.Center)
         }
@@ -1959,7 +1964,7 @@ struct LivePlayerPage {
         Stack({ alignContent: Alignment.Center }) {
           HdsGlassBar({
             barWidth: 114,
-            barHeight: 42,
+            barHeight: 44,
             contentPadding: 1,
             barBottomMargin: 1,
             hitThrough: true,
@@ -1971,17 +1976,20 @@ struct LivePlayerPage {
             this.fsBtn()
           }
           .width(114)
-          .height(42)
+          .height(44)
           .padding(4)
           .alignItems(VerticalAlign.Center)
         }
       }
-      .width('100%')
+      // 玻璃比容器内缩 2vp：容器加宽 4 并左移 2，让两枚胶囊的**玻璃边**落到 12 / winW-12，
+      // 与视频区、评论区、输入胶囊同一条竖线
+      .width(this.videoAreaRect().w + 4)
+      .translate({ x: -2 })
       .alignItems(VerticalAlign.Bottom)
       }
     .width('100%')
     .height('100%')
-    .padding({ left: 10, right: 10, bottom: 10 })
+    .padding({ left: 0, right: 0, bottom: 0 })
     // ⚠️ 用「视频区域」整宽，不用 videoOverlayRect()：
     //    竖屏看 9:16 流时显示矩形只有 243vp 宽，而左右两颗胶囊合计约 272vp，
     //    塞进去会互相重叠（真机反馈「竖屏控制栏位置有问题」）。黑边也属于视频区。
@@ -2041,7 +2049,7 @@ struct LivePlayerPage {
   chatRow(m: LiveMessage) {
     if (m.type === LiveMsgType.GIFT) {
       Text(m.text)
-        .fontSize(12)
+        .fontSize(13)
         .fontColor('#FFC98A')
         .maxLines(2)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -2052,7 +2060,7 @@ struct LivePlayerPage {
           .fontSize(10)
           .fontColor('#FF9B6A')
         Text(m.text)
-          .fontSize(12.5)
+          .fontSize(14)
           .fontColor('#FFFFFF')
           .maxLines(3)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -2065,7 +2073,7 @@ struct LivePlayerPage {
       .alignItems(HorizontalAlign.Start)
     } else if (m.type === LiveMsgType.SYSTEM) {
       Text(m.text)
-        .fontSize(11)
+        .fontSize(12)
         .fontColor('rgba(255,255,255,0.45)')
         .maxLines(2)
         .width('100%')
@@ -2073,7 +2081,7 @@ struct LivePlayerPage {
       Row({ space: 4 }) {
         if (m.medalName) {
           Text(m.medalName)
-            .fontSize(9)
+            .fontSize(10.5)
             .fontColor('#FF6699')
             .maxLines(1)
             .padding({ left: 4, right: 4 })
@@ -2086,8 +2094,8 @@ struct LivePlayerPage {
           ForEach(ChatEmote.parse(m.text), (seg: ChatTextSegment, index: number) => {
             if (seg.emoteUrl) {
               ImageSpan(seg.emoteUrl)
-                .width(18)
-                .height(18)
+                .width(20)
+                .height(20)
                 .objectFit(ImageFit.Contain)
                 .verticalAlign(ImageSpanAlignment.CENTER)
             } else {
@@ -2095,7 +2103,7 @@ struct LivePlayerPage {
             }
           }, (seg: ChatTextSegment, index: number) => `seg_${index}_${seg.emoteUrl ? 1 : 0}`)
         }
-        .fontSize(12.5)
+        .fontSize(14)
         .maxLines(3)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
         .textShadow({ radius: 2, color: 'rgba(0,0,0,0.55)', offsetX: 0, offsetY: 1 })
@@ -2122,7 +2130,7 @@ struct LivePlayerPage {
       // ⚠️ 必须占满视口：消息少时 scrollEdge(Edge.Bottom) 会把内容整体下推
       //    （未满屏时对齐"内容底 → 视口底"），表现为列表悬在面板中间、上下各一大片空白。
       .constraintSize({ minHeight: '100%' })
-      .padding({ left: 14, right: 14, top: 8, bottom: this.isLandscape ? 78 : 8 })
+      .padding({ left: 12, right: 12, top: 8, bottom: this.isLandscape ? 78 : 76 })
       .alignItems(HorizontalAlign.Start)
     }
     .width('100%')
@@ -2239,7 +2247,7 @@ struct LivePlayerPage {
     }
     .width('100%')
     .height(this.chatInputH())
-    .padding({ left: 12, right: 12, bottom: this.chatBottomPad() })
+    .padding({ left: 10, right: 10, bottom: this.chatBottomPad() })
     .alignItems(VerticalAlign.Center)
     .bindPopup(this.emoteUsePopup && this.showEmote, this.emotePopupOpts())
   }
@@ -2515,7 +2523,7 @@ struct LivePlayerPage {
 
       // ⭐ 竖屏聊天区：视频下沿 → 屏幕底部，输入栏常驻（无标题，列表直接铺满）
       if (!this.isLandscape && !this.fsMode && this.videoSrc && !this.loading) {
-        Column() {
+        Stack({ alignContent: Alignment.Bottom }) {
           Stack({ alignContent: Alignment.TopStart }) {
             this.chatList()
             if (this.wsState === 'connecting' || this.wsState === 'reconnecting') {
@@ -2523,25 +2531,29 @@ struct LivePlayerPage {
             }
           }
           .width('100%')
-          .layoutWeight(1)
+          .height('100%')
 
-          if (this.emoteH > 0) {
-            Column() {
-              this.chatEmotePanel()
+          Column() {
+            if (this.emoteH > 0) {
+              Column() {
+                this.chatEmotePanel()
+              }
+              .width('100%')
+              .height(this.emoteH)
+              .clip(true)
+              .alignItems(HorizontalAlign.Start)
             }
-            .width('100%')
-            .height(this.emoteH)
-            .clip(true)
-            .alignItems(HorizontalAlign.Start)
+            this.chatInputBar()
           }
-          this.chatInputBar()
+          .width('100%')
+          // 覆盖在列表上：自身与子节点正常响应，同时允许下层的 Scroll 接住滑动
+          .hitTestBehavior(HitTestMode.Transparent)
         }
         .width('100%')
         .height(this.winH - this.portraitChatTop())
         .position({ x: 0, y: this.portraitChatTop() })
         // 透明：让直播间背景（壁纸）透过评论区显示
         .backgroundColor(Color.Transparent)
-        .alignItems(HorizontalAlign.Start)
         .zIndex(10)
       }
 
