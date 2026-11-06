@@ -34,6 +34,12 @@ export class ChatEmote {
   private static packages: ChatEmotePackage[] = [];
   /** 是否已加载成功（失败不标记，保留重试机会） */
   private static loaded: boolean = false;
+  /**
+   * 缓存的表情匹配正则：表情表 400+ 条，旧实现每解析一条消息都要遍历 map、
+   * 排序、转义、拼串再 new RegExp —— 聊天列表每次重建会跑几百次。
+   * 现在只在首次使用时构建一次，parse 直接复用（用前重置 lastIndex）。
+   */
+  private static emoteRegex: RegExp | null = null;
 
   /** 是否已加载成功 */
   static isLoaded(): boolean {
@@ -134,6 +140,7 @@ export class ChatEmote {
       }
       ChatEmote.packages = pkgs;
       if (ChatEmote.emoteMap.size > 0) {
+        ChatEmote.emoteRegex = null;
         ChatEmote.loaded = true;
         logInfo(`[ChatEmote] 表情表加载完成: ${ChatEmote.emoteMap.size} 个`);
       } else {
@@ -170,27 +177,54 @@ export class ChatEmote {
   /**
    * 解析聊天文本：按表情 key 拆分为文字段/表情段（长 key 优先匹配，同 CommentContentRenderer 方案）
    */
-  static parse(text: string): ChatTextSegment[] {
-    if (!text) {
-      return [];
+  /** 把表情 key 里的正则元字符转义（手写扫描，避免正则字面量转义出错） */
+  private static escapeRegExp(text: string): string {
+    const special: string = '\\^$.*+?()[]{}|';
+    let out: string = '';
+    for (let i = 0; i < text.length; i++) {
+      const ch: string = text.charAt(i);
+      if (special.indexOf(ch) >= 0) {
+        out += '\\' + ch;
+      } else {
+        out += ch;
+      }
+    }
+    return out;
+  }
+
+  /** 取（并缓存）表情匹配正则；表情表未就绪返回 null */
+  private static getEmoteRegex(): RegExp | null {
+    if (ChatEmote.emoteRegex) {
+      return ChatEmote.emoteRegex;
     }
     if (ChatEmote.emoteMap.size === 0) {
-      return [{ text: text, emoteUrl: '' }];
+      return null;
     }
-    // 构建正则匹配所有表情 key（转义特殊字符，长 key 优先）
     const keys: string[] = [];
     ChatEmote.emoteMap.forEach((_url: string, key: string) => {
       keys.push(key);
     });
     keys.sort((a: string, b: string) => b.length - a.length);
-    const escapedKeys: string[] = keys.map((k: string) => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-    const pattern: string = escapedKeys.join('|');
-    if (!pattern) {
+    const escaped: string[] = [];
+    for (let i = 0; i < keys.length; i++) {
+      escaped.push(ChatEmote.escapeRegExp(keys[i]));
+    }
+    ChatEmote.emoteRegex = new RegExp(`(${escaped.join('|')})`, 'g');
+    return ChatEmote.emoteRegex;
+  }
+
+  static parse(text: string): ChatTextSegment[] {
+    if (!text) {
+      return [];
+    }
+    const regex: RegExp | null = ChatEmote.getEmoteRegex();
+    if (!regex) {
       return [{ text: text, emoteUrl: '' }];
     }
     const segments: ChatTextSegment[] = [];
-    const regex = new RegExp(`(${pattern})`, 'g');
-    let lastIndex = 0;
+    // 共享的 /g 正则必须重置游标，否则下一次调用会从上次结束位置继续
+    regex.lastIndex = 0;
+    let lastIndex: number = 0;
     let match: RegExpExecArray | null;
     while ((match = regex.exec(text)) !== null) {
       if (match.index > lastIndex) {

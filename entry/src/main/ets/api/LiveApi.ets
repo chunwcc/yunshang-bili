@@ -139,6 +139,8 @@ interface RoomInfoData {
   uid?: number;
   title?: string;
   uname?: string;
+  /** 主播头像 */
+  face?: string;
   user_cover?: string;
   online?: number;
   live_status?: number;
@@ -292,6 +294,88 @@ export interface RoomPlayInfoResult {
   qualities: QualityDescription[];
 }
 
+export interface LiveRoomH5Info {
+  appBackground: string;
+  anchorName: string;
+  anchorFace: string;
+}
+
+interface H5AnchorBaseInfo {
+  uname?: string;
+  face?: string;
+}
+
+interface H5AnchorInfo {
+  base_info?: H5AnchorBaseInfo;
+}
+
+interface H5RoomInfoItem {
+  app_background?: string;
+  keyframe?: string;
+}
+
+interface H5RoomInfoResponse {
+  code: number;
+  message: string;
+  data: H5RoomInfoData;
+}
+
+interface H5RoomInfoData {
+  room_info?: H5RoomInfoItem;
+  anchor_info?: H5AnchorInfo;
+}
+
+/**
+ * 直播间 H5 详情（PiliPlus 同款）：
+ *  - room_info.app_background → 整屏背景壁纸
+ *  - anchor_info.base_info.uname/face → 主播昵称与头像
+ */
+export async function getLiveRoomH5Info(roomId: number): Promise<LiveRoomH5Info> {
+  const httpRequest = http.createHttp();
+  const empty: LiveRoomH5Info = { appBackground: '', anchorName: '', anchorFace: '' };
+  try {
+    const url = `${HttpConstants.liveBaseUrl}/xlive/web-room/v1/index/getH5InfoByRoom?room_id=${roomId}`;
+    const response = await httpRequest.request(url, {
+      method: http.RequestMethod.GET,
+      header: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Referer': 'https://live.bilibili.com/',
+        'Origin': 'https://live.bilibili.com',
+        'Cookie': getBiliCookie()
+      },
+      connectTimeout: 10000,
+      readTimeout: 10000
+    });
+    if (response.responseCode !== 200) {
+      return empty;
+    }
+    const body = JSON.parse(response.result as string) as H5RoomInfoResponse;
+    if (body.code !== 0 || !body.data) {
+      return empty;
+    }
+    const fixUrl = (u: string): string => {
+      if (!u) { return ''; }
+      if (u.startsWith('//')) { return `https:${u}`; }
+      if (u.startsWith('http://')) { return `https://${u.substring(7)}`; }
+      return u;
+    };
+    const bg: string = fixUrl(body.data.room_info?.app_background ?? '');
+    const base: H5AnchorBaseInfo | undefined = body.data.anchor_info?.base_info;
+    const result: LiveRoomH5Info = {
+      appBackground: bg,
+      anchorName: base?.uname ?? '',
+      anchorFace: fixUrl(base?.face ?? '')
+    };
+    logInfo(`[LiveApi] H5 直播间信息: 背景=${bg ? '有' : '无'}, 主播=${result.anchorName}`);
+    return result;
+  } catch (_e) {
+    logWarn(`[LiveApi] 获取 H5 直播间信息失败: ${_e}`);
+    return empty;
+  } finally {
+    httpRequest.destroy();
+  }
+}
+
 // ==================== API 实现 ====================
 
 export async function getLiveRoomInfo(roomId: number): Promise<LiveRoomInfo | null> {
@@ -329,7 +413,7 @@ export async function getLiveRoomInfo(roomId: number): Promise<LiveRoomInfo | nu
       uid: d?.uid ?? 0,
       title: d?.title ?? '',
       uname: d?.uname ?? '',
-      face: d?.user_cover ?? '',
+      face: d?.face ?? '',
       online: d?.online ?? 0,
       liveStatus: d?.live_status ?? 0,
       keyframe: d?.keyframe ?? '',
